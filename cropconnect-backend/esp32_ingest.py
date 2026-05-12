@@ -5,12 +5,9 @@ import hmac
 import re
 import secrets
 import smtplib
-import ssl
 import time
 import threading
-import urllib.error
 import urllib.parse
-import urllib.request
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 from email.message import EmailMessage
@@ -26,11 +23,21 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field, field_validator
 
 from crop_ai_agent import build_crop_recommendation_messages, has_core_sensor_context, missing_crop_readings
+from db_utils import (
+    add_column_if_missing,
+    column_exists,
+    drop_column_if_exists,
+    index_exists,
+    modify_column_best_effort,
+    quote_identifier,
+    table_exists,
+)
+from http_client import request_json
+from logging_config import configure_logging
 from pump_control import (
     PumpStateIn,
     relay_command_text,
     update_relay_applied_state,
-    update_relay_command_state,
 )
 from security_crypto import (
     decrypt_text,
@@ -45,6 +52,7 @@ from security_crypto import (
 
 load_dotenv()
 require_data_secret()
+logger = configure_logging()
 
 
 def env(name: str, default: str) -> str:
@@ -108,6 +116,8 @@ PUBLIC_RATE_TABLE_READY = False
 PUBLIC_RATE_LIMIT_DB_FAIL_OPEN = env("PUBLIC_RATE_LIMIT_DB_FAIL_OPEN", "false").lower() in {"1", "true", "yes", "on"}
 TRUST_PROXY_HEADERS = env("TRUST_PROXY_HEADERS", "false").lower() in {"1", "true", "yes", "on"}
 ENCRYPTED_PROFILE_FIELDS = {"name", "phone", "state", "location", "city", "village", "district"}
+USER_TABLE = "users"
+LEGACY_USER_TABLE = "sign-in"
 MAIN_DB_POOL = None
 FARMERS_DB_POOLS: dict[str, pooling.MySQLConnectionPool] = {}
 MAIN_DB_POOL_LOCK = threading.Lock()
@@ -123,7 +133,7 @@ if "*" in FRONTEND_ORIGINS:
 
 
 def log_backend_error(context: str, exc: Exception) -> None:
-    print(f"{context}: {type(exc).__name__}: {exc}")
+    logger.exception("%s: %s", context, exc)
 
 
 def raise_public_error(status_code: int, detail: str, context: str, exc: Exception) -> None:
@@ -519,71 +529,6 @@ def get_farmers_connection(database: str | None = FARMERS_DATABASE):
     return FARMERS_DB_POOLS[pool_key].get_connection()
 
 
-def add_column_if_missing(cursor, table_schema: str, table_name: str, column_name: str, definition: str) -> None:
-    cursor.execute(
-        """
-        SELECT COUNT(*) AS count
-        FROM information_schema.COLUMNS
-        WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = %s
-        """,
-        (table_schema, table_name, column_name),
-    )
-    row = cursor.fetchone()
-    count = row["count"] if isinstance(row, dict) else row[0]
-    if not count:
-        cursor.execute(f"ALTER TABLE `{table_name}` ADD COLUMN `{column_name}` {definition}")
-
-
-def drop_column_if_exists(cursor, table_schema: str, table_name: str, column_name: str) -> None:
-    cursor.execute(
-        """
-        SELECT COUNT(*) AS count
-        FROM information_schema.COLUMNS
-        WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = %s
-        """,
-        (table_schema, table_name, column_name),
-    )
-    row = cursor.fetchone()
-    count = row["count"] if isinstance(row, dict) else row[0]
-    if count:
-        cursor.execute(f"ALTER TABLE `{table_name}` DROP COLUMN `{column_name}`")
-
-
-def column_exists(cursor, table_schema: str, table_name: str, column_name: str) -> bool:
-    cursor.execute(
-        """
-        SELECT COUNT(*) AS count
-        FROM information_schema.COLUMNS
-        WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = %s
-        """,
-        (table_schema, table_name, column_name),
-    )
-    row = cursor.fetchone()
-    count = row["count"] if isinstance(row, dict) else row[0]
-    return bool(count)
-
-
-def modify_column_best_effort(cursor, table_name: str, column_name: str, definition: str) -> None:
-    try:
-        cursor.execute(f"ALTER TABLE `{table_name}` MODIFY COLUMN `{column_name}` {definition}")
-    except Exception:
-        pass
-
-
-def index_exists(cursor, table_schema: str, table_name: str, index_name: str) -> bool:
-    cursor.execute(
-        """
-        SELECT COUNT(*) AS count
-        FROM information_schema.STATISTICS
-        WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND INDEX_NAME = %s
-        """,
-        (table_schema, table_name, index_name),
-    )
-    row = cursor.fetchone()
-    count = row["count"] if isinstance(row, dict) else row[0]
-    return bool(count)
-
-
 def migrate_legacy_device_api_keys(cursor, table_schema: str) -> None:
     if not column_exists(cursor, table_schema, "devices", "api_key"):
         return
@@ -791,12 +736,12 @@ def ensure_sensor_tables() -> None:
 
 def ensure_farmers_tables() -> None:
     create_db_sql = """
-        CREATE DATABASE IF NOT EXISTS `{database}`
+        CREATE DATABASE IF NOT EXISTS {database}
           CHARACTER SET utf8mb4
           COLLATE utf8mb4_unicode_ci
-    """.format(database=FARMERS_DATABASE)
-    create_sign_in_sql = """
-        CREATE TABLE IF NOT EXISTS `sign-in` (
+    """.format(database=quote_identifier(FARMERS_DATABASE))
+    create_user_sql = """
+        CREATE TABLE IF NOT EXISTS `users` (
           `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
           `email` VARCHAR(255) NOT NULL,
           `password` VARCHAR(255) NOT NULL,
@@ -807,8 +752,8 @@ def ensure_farmers_tables() -> None:
           `land size` DECIMAL(10,2) NULL,
           `sensor_device_id` VARCHAR(80) NULL,
           PRIMARY KEY (`id`),
-          UNIQUE KEY `uq_sign_in_email` (`email`),
-          UNIQUE KEY `uq_sign_in_sensor_device_id` (`sensor_device_id`)
+          UNIQUE KEY `uq_users_email` (`email`),
+          UNIQUE KEY `uq_users_sensor_device_id` (`sensor_device_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     """
 
@@ -819,23 +764,37 @@ def ensure_farmers_tables() -> None:
 
     with get_farmers_connection() as conn:
         with conn.cursor(dictionary=True) as cursor:
-            cursor.execute(create_sign_in_sql)
-            add_column_if_missing(cursor, FARMERS_DATABASE, "sign-in", "location_type", "VARCHAR(20) NULL")
-            add_column_if_missing(cursor, FARMERS_DATABASE, "sign-in", "district", "VARCHAR(120) NULL")
-            add_column_if_missing(cursor, FARMERS_DATABASE, "sign-in", "city", "VARCHAR(120) NULL")
-            add_column_if_missing(cursor, FARMERS_DATABASE, "sign-in", "village", "VARCHAR(120) NULL")
-            add_column_if_missing(cursor, FARMERS_DATABASE, "sign-in", "sensor_device_id", "VARCHAR(80) NULL")
-            add_column_if_missing(cursor, FARMERS_DATABASE, "sign-in", "sensors", "VARCHAR(20) NULL")
-            add_column_if_missing(cursor, FARMERS_DATABASE, "sign-in", "pumps", "VARCHAR(20) NULL")
-            add_column_if_missing(cursor, FARMERS_DATABASE, "sign-in", "sensor_setup_complete", "TINYINT(1) NOT NULL DEFAULT 0")
-            add_column_if_missing(cursor, FARMERS_DATABASE, "sign-in", "sensor_setup_status", "VARCHAR(40) NULL")
-            cursor.execute("UPDATE `sign-in` SET `sensor_device_id` = NULL WHERE TRIM(COALESCE(`sensor_device_id`, '')) = ''")
+            legacy_exists = table_exists(cursor, FARMERS_DATABASE, LEGACY_USER_TABLE)
+            users_exists = table_exists(cursor, FARMERS_DATABASE, USER_TABLE)
+            if legacy_exists and not users_exists:
+                cursor.execute(
+                    "RENAME TABLE {database}.{legacy_table} TO {database}.{user_table}".format(
+                        database=quote_identifier(FARMERS_DATABASE),
+                        legacy_table=quote_identifier(LEGACY_USER_TABLE),
+                        user_table=quote_identifier(USER_TABLE),
+                    )
+                )
+                logger.info("Renamed legacy farmers.%s table to %s", LEGACY_USER_TABLE, USER_TABLE)
+            elif legacy_exists and users_exists:
+                logger.warning("Legacy farmers.%s table still exists alongside %s; leaving it untouched", LEGACY_USER_TABLE, USER_TABLE)
+
+            cursor.execute(create_user_sql)
+            add_column_if_missing(cursor, FARMERS_DATABASE, "users", "location_type", "VARCHAR(20) NULL")
+            add_column_if_missing(cursor, FARMERS_DATABASE, "users", "district", "VARCHAR(120) NULL")
+            add_column_if_missing(cursor, FARMERS_DATABASE, "users", "city", "VARCHAR(120) NULL")
+            add_column_if_missing(cursor, FARMERS_DATABASE, "users", "village", "VARCHAR(120) NULL")
+            add_column_if_missing(cursor, FARMERS_DATABASE, "users", "sensor_device_id", "VARCHAR(80) NULL")
+            add_column_if_missing(cursor, FARMERS_DATABASE, "users", "sensors", "VARCHAR(20) NULL")
+            add_column_if_missing(cursor, FARMERS_DATABASE, "users", "pumps", "VARCHAR(20) NULL")
+            add_column_if_missing(cursor, FARMERS_DATABASE, "users", "sensor_setup_complete", "TINYINT(1) NOT NULL DEFAULT 0")
+            add_column_if_missing(cursor, FARMERS_DATABASE, "users", "sensor_setup_status", "VARCHAR(40) NULL")
+            cursor.execute("UPDATE `users` SET `sensor_device_id` = NULL WHERE TRIM(COALESCE(`sensor_device_id`, '')) = ''")
             cursor.execute(
                 """
-                UPDATE `sign-in` duplicate_user
+                UPDATE `users` duplicate_user
                 INNER JOIN (
                   SELECT `sensor_device_id`, MIN(`id`) AS keep_id
-                  FROM `sign-in`
+                  FROM `users`
                   WHERE `sensor_device_id` IS NOT NULL AND TRIM(`sensor_device_id`) <> ''
                   GROUP BY `sensor_device_id`
                   HAVING COUNT(*) > 1
@@ -847,16 +806,19 @@ def ensure_farmers_tables() -> None:
                 WHERE duplicate_user.`id` <> keepers.keep_id
                 """
             )
-            if not index_exists(cursor, FARMERS_DATABASE, "sign-in", "uq_sign_in_sensor_device_id"):
-                cursor.execute("CREATE UNIQUE INDEX uq_sign_in_sensor_device_id ON `sign-in` (`sensor_device_id`)")
-            modify_column_best_effort(cursor, "sign-in", "password", "VARCHAR(255) NOT NULL")
-            modify_column_best_effort(cursor, "sign-in", "phone", "VARCHAR(512) NULL")
-            modify_column_best_effort(cursor, "sign-in", "name", "VARCHAR(512) NULL")
-            modify_column_best_effort(cursor, "sign-in", "state", "VARCHAR(512) NULL")
-            modify_column_best_effort(cursor, "sign-in", "location", "TEXT NULL")
-            modify_column_best_effort(cursor, "sign-in", "district", "VARCHAR(512) NULL")
-            modify_column_best_effort(cursor, "sign-in", "city", "VARCHAR(512) NULL")
-            modify_column_best_effort(cursor, "sign-in", "village", "VARCHAR(512) NULL")
+            if not (
+                index_exists(cursor, FARMERS_DATABASE, "users", "uq_users_sensor_device_id")
+                or index_exists(cursor, FARMERS_DATABASE, "users", "uq_sign_in_sensor_device_id")
+            ):
+                cursor.execute("CREATE UNIQUE INDEX uq_users_sensor_device_id ON `users` (`sensor_device_id`)")
+            modify_column_best_effort(cursor, "users", "password", "VARCHAR(255) NOT NULL")
+            modify_column_best_effort(cursor, "users", "phone", "VARCHAR(512) NULL")
+            modify_column_best_effort(cursor, "users", "name", "VARCHAR(512) NULL")
+            modify_column_best_effort(cursor, "users", "state", "VARCHAR(512) NULL")
+            modify_column_best_effort(cursor, "users", "location", "TEXT NULL")
+            modify_column_best_effort(cursor, "users", "district", "VARCHAR(512) NULL")
+            modify_column_best_effort(cursor, "users", "city", "VARCHAR(512) NULL")
+            modify_column_best_effort(cursor, "users", "village", "VARCHAR(512) NULL")
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS password_reset_tokens (
@@ -1207,14 +1169,6 @@ def json_text(value: Any) -> str:
     return json.dumps(value if value is not None else {}, ensure_ascii=False)
 
 
-def owner_where(user_id: int | None, email: str | None) -> tuple[str, tuple[Any, ...]]:
-    if user_id:
-        return "user_id = %s", (user_id,)
-    if email:
-        return "email = %s", (email.strip().lower(),)
-    return "email IS NULL AND user_id IS NULL", ()
-
-
 def set_auth_cookie(response: Response, token: str) -> str:
     csrf_token = secrets.token_urlsafe(32)
     response.set_cookie(
@@ -1356,39 +1310,9 @@ def insert_chat_record(
                     ),
                 )
             conn.commit()
-    except Exception:
+    except Exception as exc:
         # Chat should still answer even if persistence is temporarily unavailable.
-        pass
-
-
-def request_json(
-    url: str,
-    payload: dict[str, Any] | None = None,
-    headers: dict[str, str] | None = None,
-    verify_ssl: bool = True,
-) -> dict[str, Any]:
-    data = json.dumps(payload).encode("utf-8") if payload is not None else None
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={"Content-Type": "application/json", **(headers or {})},
-        method="POST" if payload is not None else "GET",
-    )
-    context = None if verify_ssl else ssl._create_unverified_context()
-    try:
-        with urllib.request.urlopen(req, timeout=15, context=context) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        detail = exc.reason
-        try:
-            body = exc.read().decode("utf-8")
-            parsed = json.loads(body)
-            detail = parsed.get("error", {}).get("message") or parsed.get("detail") or body
-        except Exception:
-            pass
-        raise RuntimeError(f"HTTP {exc.code}: {detail}") from exc
-    except urllib.error.URLError as exc:
-        raise RuntimeError(f"Network error: {repr(exc.reason)}") from exc
+        logger.exception("Chat persistence failed: %s", exc)
 
 
 def parse_ai_json(raw: str) -> Any:
@@ -1767,7 +1691,7 @@ def owner_profile_context(owner_id: int) -> dict[str, Any]:
     try:
         with get_farmers_connection() as conn:
             with conn.cursor(dictionary=True) as cursor:
-                cursor.execute("SELECT * FROM `sign-in` WHERE `id` = %s LIMIT 1", (owner_id,))
+                cursor.execute("SELECT * FROM `users` WHERE `id` = %s LIMIT 1", (owner_id,))
                 row = cursor.fetchone()
     except Exception as exc:
         raise_public_error(503, "Could not load account profile", "Owner profile lookup failed", exc)
@@ -1960,10 +1884,7 @@ def latest_relay_command_states_from_db(device_id: str) -> dict[int, bool]:
 
 
 def sync_relay_commands_from_db(device_id: str) -> dict[int, bool]:
-    states = latest_relay_command_states_from_db(device_id)
-    for relay_number, is_on in states.items():
-        update_relay_command_state(f"pump{relay_number}", is_on)
-    return states
+    return latest_relay_command_states_from_db(device_id)
 
 
 def save_relay_applied_states_to_db(device_id: str, states: dict[int, bool]) -> None:
@@ -2403,7 +2324,7 @@ def auth_signup(payload: AuthSignupIn, request: Request, response: Response):
     rate_limit_public_request(request, f"auth-signup-email-{email_bucket}", limit=3, window_seconds=60 * 60)
 
     insert_sql = """
-        INSERT INTO `sign-in` (
+        INSERT INTO `users` (
           `email`,
           `password`,
           `phone`,
@@ -2451,7 +2372,7 @@ def auth_signup(payload: AuthSignupIn, request: Request, response: Response):
             with conn.cursor(dictionary=True) as cursor:
                 cursor.execute(insert_sql, values)
                 user_id = cursor.lastrowid
-                cursor.execute("SELECT * FROM `sign-in` WHERE `id` = %s", (user_id,))
+                cursor.execute("SELECT * FROM `users` WHERE `id` = %s", (user_id,))
                 row = cursor.fetchone()
             conn.commit()
     except mysql.connector.IntegrityError as exc:
@@ -2482,7 +2403,7 @@ def auth_login(payload: AuthLoginIn, request: Request, response: Response):
     query = """
         SELECT
           *
-        FROM `sign-in`
+        FROM `users`
         WHERE `email` = %s
         LIMIT 1
     """
@@ -2548,7 +2469,7 @@ def auth_password_reset_request(payload: AuthPasswordResetRequestIn, request: Re
         try:
             with get_farmers_connection() as conn:
                 with conn.cursor(dictionary=True) as cursor:
-                    cursor.execute("SELECT id FROM `sign-in` WHERE `email` = %s LIMIT 1", (email,))
+                    cursor.execute("SELECT id FROM `users` WHERE `email` = %s LIMIT 1", (email,))
                     row = cursor.fetchone()
                     if row:
                         reset_token = secrets.token_urlsafe(32)
@@ -2573,12 +2494,12 @@ def auth_password_reset_request(payload: AuthPasswordResetRequestIn, request: Re
                                 (reset_token_id,),
                             )
                             conn.commit()
-                            print(f"Password reset email delivery failed: {exc}")
+                            logger.exception("Password reset email delivery failed: %s", exc)
                     conn.commit()
         except Exception as exc:
-            print(f"Password reset request failed: {exc}")
+            logger.exception("Password reset request failed: %s", exc)
     else:
-        print("Password reset request received, but SMTP is not configured.")
+        logger.info("Password reset request received, but SMTP is not configured.")
 
     return {
         "ok": True,
@@ -2615,7 +2536,7 @@ def auth_password_reset_confirm(payload: AuthPasswordResetConfirmIn, request: Re
                     raise HTTPException(status_code=400, detail="Reset link is invalid or expired")
 
                 cursor.execute(
-                    "UPDATE `sign-in` SET `password` = %s WHERE `email` = %s",
+                    "UPDATE `users` SET `password` = %s WHERE `email` = %s",
                     (hash_password(payload.password), email),
                 )
                 if cursor.rowcount == 0:
@@ -2644,18 +2565,18 @@ def auth_profile_update(
     updates: list[str] = []
     values: list[Any] = []
     field_map = {
-        "name": "name",
-        "phone": "phone",
-        "state": "state",
-        "location": "location",
-        "land_size": "land size",
-        "location_type": "location_type",
-        "district": "district",
-        "city": "city",
-        "village": "village",
-        "sensors": "sensors",
-        "pumps": "pumps",
-        "sensor_setup_status": "sensor_setup_status",
+        "name": ("name", "`name` = %s"),
+        "phone": ("phone", "`phone` = %s"),
+        "state": ("state", "`state` = %s"),
+        "location": ("location", "`location` = %s"),
+        "land_size": ("land size", "`land size` = %s"),
+        "location_type": ("location_type", "`location_type` = %s"),
+        "district": ("district", "`district` = %s"),
+        "city": ("city", "`city` = %s"),
+        "village": ("village", "`village` = %s"),
+        "sensors": ("sensors", "`sensors` = %s"),
+        "pumps": ("pumps", "`pumps` = %s"),
+        "sensor_setup_status": ("sensor_setup_status", "`sensor_setup_status` = %s"),
     }
 
     data = payload.model_dump(exclude_unset=True)
@@ -2664,7 +2585,7 @@ def auth_profile_update(
         try:
             with get_farmers_connection() as conn:
                 with conn.cursor(dictionary=True) as cursor:
-                    cursor.execute("SELECT sensor_device_id FROM `sign-in` WHERE `id` = %s", (owner_id,))
+                    cursor.execute("SELECT sensor_device_id FROM `users` WHERE `id` = %s", (owner_id,))
                     current_row = cursor.fetchone()
         except Exception as exc:
             raise_public_error(503, "Could not validate sensor device", "Sensor device validation failed", exc)
@@ -2678,9 +2599,9 @@ def auth_profile_update(
             updates.append("`sensor_device_id` = %s")
             values.append(generate_sensor_device_id())
 
-    for input_name, column_name in field_map.items():
+    for input_name, (column_name, assignment_sql) in field_map.items():
         if input_name in data and data[input_name] is not None:
-            updates.append(f"`{column_name}` = %s")
+            updates.append(assignment_sql)
             value = data[input_name]
             values.append(encrypt_text(value) if column_name in ENCRYPTED_PROFILE_FIELDS else value)
 
@@ -2691,17 +2612,16 @@ def auth_profile_update(
     if not updates:
         raise HTTPException(status_code=400, detail="No profile fields provided")
 
-    where_sql = "`id` = %s"
     values.append(owner_id)
 
     try:
         with get_farmers_connection() as conn:
             with conn.cursor(dictionary=True) as cursor:
-                cursor.execute(f"UPDATE `sign-in` SET {', '.join(updates)} WHERE {where_sql}", tuple(values))
+                cursor.execute("UPDATE `users` SET " + ", ".join(updates) + " WHERE `id` = %s", tuple(values))
                 if cursor.rowcount == 0:
                     raise HTTPException(status_code=404, detail="User not found")
                 cursor.execute(
-                    "SELECT * FROM `sign-in` WHERE " + where_sql,
+                    "SELECT * FROM `users` WHERE `id` = %s",
                     (owner_id,),
                 )
                 row = cursor.fetchone()
@@ -2758,8 +2678,6 @@ def set_pump_state(
     except Exception as exc:
         raise_public_error(503, "Could not queue pump command", "Pump command queue failed", exc)
 
-    update_relay_command_state(payload.pump_id, payload.on)
-
     return {
         "ok": True,
         "device_id": device_id,
@@ -2814,8 +2732,6 @@ def save_pump_state(
     except Exception as exc:
         raise_public_error(503, "Could not save pump state", "Pump state save failed", exc)
 
-    update_relay_command_state(payload.pump_id, payload.on)
-
     return {"ok": True, "device_id": device_id}
 
 
@@ -2831,20 +2747,48 @@ def get_pump_states(
     device_id = str(owner_profile.get("sensorDeviceId") or "").strip()
     if not device_id:
         return {"ok": True, "items": []}
-    where_sql, owner_values = owner_where(owner_id, owner_email)
-    query = f"""
-        SELECT ps.*
-        FROM pump_states ps
-        INNER JOIN (
-          SELECT pump_id, MAX(id) AS latest_id
-          FROM pump_states
-          WHERE {where_sql} AND device_id = %s
-          GROUP BY pump_id
-        ) latest ON ps.id = latest.latest_id
-        WHERE ps.device_id = %s
-        ORDER BY ps.pump_id
-    """
-    values = (*owner_values, device_id, device_id)
+    if owner_id:
+        query = """
+            SELECT ps.*
+            FROM pump_states ps
+            INNER JOIN (
+              SELECT pump_id, MAX(id) AS latest_id
+              FROM pump_states
+              WHERE user_id = %s AND device_id = %s
+              GROUP BY pump_id
+            ) latest ON ps.id = latest.latest_id
+            WHERE ps.device_id = %s
+            ORDER BY ps.pump_id
+        """
+        values = (owner_id, device_id, device_id)
+    elif owner_email:
+        query = """
+            SELECT ps.*
+            FROM pump_states ps
+            INNER JOIN (
+              SELECT pump_id, MAX(id) AS latest_id
+              FROM pump_states
+              WHERE email = %s AND device_id = %s
+              GROUP BY pump_id
+            ) latest ON ps.id = latest.latest_id
+            WHERE ps.device_id = %s
+            ORDER BY ps.pump_id
+        """
+        values = (owner_email.strip().lower(), device_id, device_id)
+    else:
+        query = """
+            SELECT ps.*
+            FROM pump_states ps
+            INNER JOIN (
+              SELECT pump_id, MAX(id) AS latest_id
+              FROM pump_states
+              WHERE email IS NULL AND user_id IS NULL AND device_id = %s
+              GROUP BY pump_id
+            ) latest ON ps.id = latest.latest_id
+            WHERE ps.device_id = %s
+            ORDER BY ps.pump_id
+        """
+        values = (device_id, device_id)
     try:
         with get_connection() as conn:
             with conn.cursor(dictionary=True) as cursor:
@@ -2919,8 +2863,21 @@ def save_pump_timers(
     try:
         with get_connection() as conn:
             with conn.cursor() as cursor:
-                where_sql, values = owner_where(owner_id, owner_email)
-                cursor.execute(f"DELETE FROM pump_timers WHERE {where_sql} AND (device_id = %s OR device_id IS NULL)", (*values, device_id))
+                if owner_id:
+                    cursor.execute(
+                        "DELETE FROM pump_timers WHERE user_id = %s AND (device_id = %s OR device_id IS NULL)",
+                        (owner_id, device_id),
+                    )
+                elif owner_email:
+                    cursor.execute(
+                        "DELETE FROM pump_timers WHERE email = %s AND (device_id = %s OR device_id IS NULL)",
+                        (owner_email.strip().lower(), device_id),
+                    )
+                else:
+                    cursor.execute(
+                        "DELETE FROM pump_timers WHERE email IS NULL AND user_id IS NULL AND (device_id = %s OR device_id IS NULL)",
+                        (device_id,),
+                    )
                 for pump_id, timers in payload.timers.items():
                     for timer in timers:
                         start_time = format_timer_start_time(timer.get("startTime"))
@@ -2970,20 +2927,37 @@ def get_pump_timers(
     owner_id, owner_email = require_auth_owner(authorization, auth_cookie)
     owner_profile = owner_profile_context(owner_id)
     device_id = str(owner_profile.get("sensorDeviceId") or "").strip()
-    where_sql, values = owner_where(owner_id, owner_email)
+    if owner_id:
+        query = """
+            SELECT *
+            FROM pump_timers
+            WHERE user_id = %s AND active = 1
+              AND (%s = '' OR device_id = %s OR device_id IS NULL)
+            ORDER BY pump_id, start_time
+        """
+        values = (owner_id, device_id, device_id)
+    elif owner_email:
+        query = """
+            SELECT *
+            FROM pump_timers
+            WHERE email = %s AND active = 1
+              AND (%s = '' OR device_id = %s OR device_id IS NULL)
+            ORDER BY pump_id, start_time
+        """
+        values = (owner_email.strip().lower(), device_id, device_id)
+    else:
+        query = """
+            SELECT *
+            FROM pump_timers
+            WHERE email IS NULL AND user_id IS NULL AND active = 1
+              AND (%s = '' OR device_id = %s OR device_id IS NULL)
+            ORDER BY pump_id, start_time
+        """
+        values = (device_id, device_id)
     try:
         with get_connection() as conn:
             with conn.cursor(dictionary=True) as cursor:
-                cursor.execute(
-                    f"""
-                    SELECT *
-                    FROM pump_timers
-                    WHERE {where_sql} AND active = 1
-                      AND (%s = '' OR device_id = %s OR device_id IS NULL)
-                    ORDER BY pump_id, start_time
-                    """,
-                    (*values, device_id, device_id),
-                )
+                cursor.execute(query, values)
                 rows = cursor.fetchall()
     except Exception as exc:
         raise_public_error(503, "Could not load timers", "Timer lookup failed", exc)
@@ -3011,20 +2985,37 @@ def get_chat_history(
     auth_cookie: str | None = Cookie(default=None, alias=AUTH_COOKIE_NAME),
 ):
     owner_id, owner_email = require_auth_owner(authorization, auth_cookie)
-    where_sql, values = owner_where(owner_id, owner_email)
+    if owner_id:
+        query = """
+            SELECT *
+            FROM chat_messages
+            WHERE user_id = %s
+            ORDER BY id DESC
+            LIMIT %s
+        """
+        values = (owner_id, limit)
+    elif owner_email:
+        query = """
+            SELECT *
+            FROM chat_messages
+            WHERE email = %s
+            ORDER BY id DESC
+            LIMIT %s
+        """
+        values = (owner_email.strip().lower(), limit)
+    else:
+        query = """
+            SELECT *
+            FROM chat_messages
+            WHERE email IS NULL AND user_id IS NULL
+            ORDER BY id DESC
+            LIMIT %s
+        """
+        values = (limit,)
     try:
         with get_connection() as conn:
             with conn.cursor(dictionary=True) as cursor:
-                cursor.execute(
-                    f"""
-                    SELECT *
-                    FROM chat_messages
-                    WHERE {where_sql}
-                    ORDER BY id DESC
-                    LIMIT %s
-                    """,
-                    (*values, limit),
-                )
+                cursor.execute(query, values)
                 rows = cursor.fetchall()
     except Exception as exc:
         raise_public_error(503, "Could not load chat history", "Chat history lookup failed", exc)
@@ -3095,20 +3086,37 @@ def get_latest_dashboard_snapshot(
     auth_cookie: str | None = Cookie(default=None, alias=AUTH_COOKIE_NAME),
 ):
     owner_id, owner_email = require_auth_owner(authorization, auth_cookie)
-    where_sql, values = owner_where(owner_id, owner_email)
+    if owner_id:
+        query = """
+            SELECT *
+            FROM dashboard_snapshots
+            WHERE user_id = %s
+            ORDER BY id DESC
+            LIMIT 1
+        """
+        values = (owner_id,)
+    elif owner_email:
+        query = """
+            SELECT *
+            FROM dashboard_snapshots
+            WHERE email = %s
+            ORDER BY id DESC
+            LIMIT 1
+        """
+        values = (owner_email.strip().lower(),)
+    else:
+        query = """
+            SELECT *
+            FROM dashboard_snapshots
+            WHERE email IS NULL AND user_id IS NULL
+            ORDER BY id DESC
+            LIMIT 1
+        """
+        values = ()
     try:
         with get_connection() as conn:
             with conn.cursor(dictionary=True) as cursor:
-                cursor.execute(
-                    f"""
-                    SELECT *
-                    FROM dashboard_snapshots
-                    WHERE {where_sql}
-                    ORDER BY id DESC
-                    LIMIT 1
-                    """,
-                    values,
-                )
+                cursor.execute(query, values)
                 row = cursor.fetchone()
     except Exception as exc:
         raise_public_error(503, "Could not load dashboard snapshot", "Dashboard snapshot lookup failed", exc)

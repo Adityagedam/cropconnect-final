@@ -3,7 +3,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-RELAY_COMMAND_STATE: dict[int, bool] = {index: False for index in range(1, 9)}
 RELAY_APPLIED_STATE: dict[int, bool] = {index: False for index in range(1, 9)}
 RELAY_STATUS_UPDATED_AT = ""
 
@@ -22,17 +21,17 @@ def pump_number(pump_id: str) -> str:
 
 
 def update_relay_command_state(pump_id: str, on: bool) -> None:
-    try:
-        relay_number = int(pump_number(pump_id))
-    except ValueError:
-        return
+    """Compatibility hook.
 
-    if 1 <= relay_number <= 8:
-        RELAY_COMMAND_STATE[relay_number] = on
+    Desired relay commands are persisted in MySQL pump_states and fetched per
+    device. Keeping this as a no-op prevents process memory from becoming an
+    accidental source of truth after deploys or restarts.
+    """
+    return None
 
 
-def relay_command_text(states: dict[int, bool] | None = None) -> str:
-    desired_states = states or RELAY_COMMAND_STATE
+def relay_command_text(states: dict[int, bool]) -> str:
+    desired_states = states or {}
     return " ".join(
         f"{relay_number}{'on' if desired_states.get(relay_number, False) else 'off'}"
         for relay_number in range(1, 9)
@@ -48,7 +47,7 @@ def update_relay_applied_state(states: dict[int, bool]) -> None:
 
 
 def relay_status_payload(desired_states: dict[int, bool] | None = None) -> dict[str, Any]:
-    desired = desired_states or RELAY_COMMAND_STATE
+    desired = desired_states or {}
     return {
         "desired": {
             str(relay_number): desired.get(relay_number, False)

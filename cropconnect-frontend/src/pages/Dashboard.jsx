@@ -16,9 +16,6 @@ import {
   TrendingDown,
   AlertTriangle,
   Info,
-  XCircle,
-  Clock,
-  Send,
   Sprout,
   Wheat,
   Flower2,
@@ -38,33 +35,17 @@ import {
   Router,
   ShieldCheck,
   Wifi,
-  Mic,
-  MicOff,
-  RefreshCw,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import LanguageSelect, { languages } from "../components/LanguageSelect";
+import AiChatPanel from "../components/dashboard/AiChatPanel";
+import MarketPanel from "../components/dashboard/MarketPanel";
+import PumpControlPanel from "../components/dashboard/PumpControlPanel";
 import CropPlanner from "./CropPlanner";
 import { toast } from "sonner";
 import { API, clearCsrfToken, csrfHeadersAsync } from "../lib/api";
-
-const renderChatText = (value) =>
-  String(value ?? "")
-    .split("\n")
-    .map((line, lineIndex, lines) => (
-      <span key={`line-${lineIndex}`}>
-        {line.split(/(\*\*.*?\*\*)/g).map((part, partIndex) =>
-          part.startsWith("**") && part.endsWith("**") ? (
-            <strong key={`part-${lineIndex}-${partIndex}`}>{part.slice(2, -2)}</strong>
-          ) : (
-            <span key={`part-${lineIndex}-${partIndex}`}>{part}</span>
-          )
-        )}
-        {lineIndex < lines.length - 1 && <br />}
-      </span>
-    ));
 
 const humanizeApiValue = (value, fallback = "") => {
   if (value == null || value === "") return fallback;
@@ -110,10 +91,6 @@ const normalizeUserProfile = (user = {}) => ({
 const numericOrNull = (value) => {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
-};
-const displayRupees = (value) => {
-  const number = numericOrNull(value);
-  return number === null ? EMPTY_DISPLAY : `Rs ${number.toLocaleString("en-IN")}`;
 };
 const marketFriendlyError = (message) => {
   const text = humanizeApiValue(message, "");
@@ -242,7 +219,7 @@ const buildSensorAlerts = (data = {}, connection = {}) => {
     addAlert("soil-moisture-high", "Soil moisture is very high", `Latest SIM800L reading is ${data.soilMoisture}%. Check drainage and pump state.`);
   }
   if (isPresent(data.temperature) && data.temperature > 40) {
-    addAlert("temperature-high", "Temperature is high", `Latest SIM800L reading is ${data.temperature}캜. Avoid spraying and check crop stress.`);
+    addAlert("temperature-high", "Temperature is high", `Latest SIM800L reading is ${data.temperature}째C. Avoid spraying and check crop stress.`);
   }
   if (isPresent(data.soilPh) && (data.soilPh < 5.5 || data.soilPh > 8.5)) {
     addAlert("ph-out-of-range", "Soil pH needs attention", `Latest SIM800L pH reading is ${data.soilPh}. Confirm with a soil test before treatment.`);
@@ -994,7 +971,7 @@ export default function Dashboard() {
     if (chatMessages.length === 0) {
       const firstName = userData.name.split(" ")[0] || "there";
       const welcomeText = sensorConnection.source === "esp32"
-        ? `Welcome back, ${firstName}. Live ESP32 readings: soil moisture ${displayValue(sensorData.soilMoisture, "%")}, temperature ${displayValue(sensorData.temperature, "캜")}, humidity ${displayValue(sensorData.humidity, "%")}. How can I help?`
+        ? `Welcome back, ${firstName}. Live ESP32 readings: soil moisture ${displayValue(sensorData.soilMoisture, "%")}, temperature ${displayValue(sensorData.temperature, "째C")}, humidity ${displayValue(sensorData.humidity, "%")}. How can I help?`
         : `Welcome back, ${firstName}. No ESP32 readings are available yet, so missing values are shown as ${EMPTY_DISPLAY}. How can I help?`;
       setChatMessages([
         {
@@ -1645,182 +1622,6 @@ export default function Dashboard() {
     );
   };
 
-  // Pump card component
-  const PumpCard = ({ id, name, zone, pump }) => {
-    const appliedKnown = pump.appliedOn !== null && pump.appliedOn !== undefined;
-    const appliedText = appliedKnown ? (pump.appliedOn ? "ON" : "OFF") : EMPTY_DISPLAY;
-    const desiredText = pump.on ? "ON" : "OFF";
-    return (
-      <div className="p-5 rounded-xl bg-white border border-[#e8e3d8] shadow-sm">
-        <div className="flex items-start justify-between mb-4">
-          <div>
-            <h3 className="font-semibold" style={{ color: colors.textDark }}>{name}</h3>
-            <p className="text-sm" style={{ color: colors.textLight }}>{zone}</p>
-          </div>
-          <button
-            onClick={() => togglePump(id)}
-            disabled={pumpUpdating[id]}
-            className={`relative w-12 h-6 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${pump.on ? "bg-green-500" : "bg-gray-300"}`}
-            aria-label={`Turn ${name} ${pump.on ? "off" : "on"}`}
-          >
-            <div className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-transform ${pump.on ? "translate-x-7" : "translate-x-1"}`} />
-          </button>
-        </div>
-
-        <div className="flex items-center gap-4 mb-4">
-          <div className={`w-16 h-16 rounded-full flex items-center justify-center transition-all ${pump.on ? "bg-green-50 animate-pulse" : "bg-gray-100"}`} style={pump.on ? { boxShadow: `0 0 20px ${colors.greenLight}40` } : {}}>
-            {pump.on ? (
-              <Droplets className="w-6 h-6 animate-spin" style={{ color: colors.greenLight, animationDuration: "3s" }} />
-            ) : (
-              <span className="text-2xl">OFF</span>
-            )}
-          </div>
-          <div>
-            <p className="text-sm" style={{ color: colors.textLight }}>{t("status")}</p>
-            <p className="font-medium" style={{ color: colors.textDark }}>Desired: {desiredText}</p>
-            <p className="text-sm" style={{ color: pump.hardwareConfirmed ? colors.greenLight : colors.textLight }}>
-              Hardware: {appliedText}
-            </p>
-            {pump.on && <p className="text-sm" style={{ color: colors.greenLight }}>{t("runtime")}: {formatTime(pump.runtime)}</p>}
-          </div>
-        </div>
-
-        <div className="flex gap-2 mb-4">
-          <span className="px-2 py-1 text-xs rounded-md bg-gray-100" style={{ color: colors.textMid }}>ON: {displayValue(pump.schedule.on)}</span>
-          <span className="px-2 py-1 text-xs rounded-md bg-gray-100" style={{ color: colors.textMid }}>OFF: {displayValue(pump.schedule.off)}</span>
-          <span className="px-2 py-1 text-xs rounded-md bg-gray-100" style={{ color: colors.textMid }}>{displayValue(pump.schedule.flow)}</span>
-        </div>
-
-        <div className="h-2 rounded-full bg-gray-100 overflow-hidden mb-3">
-          <div className="h-full rounded-full transition-all duration-500" style={{ width: pump.on ? "65%" : "0%", background: `linear-gradient(90deg, ${colors.greenLight}, ${colors.greenAccent})` }} />
-        </div>
-
-        <p className="text-xs text-center" style={{ color: colors.textLight }}>{t("autoMode")}</p>
-
-        <div className="mt-4 pt-4 border-t border-gray-100">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-sm font-medium" style={{ color: colors.textDark }}>{t("scheduledTimers")}</p>
-            <button onClick={() => openTimerModal(id)} className="text-xs px-2 py-1 rounded-md bg-green-50 hover:bg-green-100 transition-colors" style={{ color: colors.greenLight }}>
-              {t("addTimer")}
-            </button>
-          </div>
-          <p className="mb-2 text-[11px]" style={{ color: colors.textLight }}>
-            Timers are saved to MySQL and applied when the main ESP32 polls relay commands.
-          </p>
-          <div className="space-y-1">
-            {scheduledTimers[id]?.map((timer) => (
-              <div key={timer.id} className="flex items-center justify-between px-2 py-1.5 rounded-md bg-gray-50">
-                <div className="flex items-center gap-2">
-                  <Clock className="w-3 h-3" style={{ color: colors.textLight }} />
-                  <span className="text-xs font-mono" style={{ color: colors.textDark }}>{formatTimerStartTime(timer.startTime)} ({timer.duration}min)</span>
-                </div>
-                <button onClick={() => removeTimer(id, timer.id)} className="text-gray-400 hover:text-red-500">
-                  <XCircle className="w-3 h-3" />
-                </button>
-              </div>
-            ))}
-            {(!scheduledTimers[id] || scheduledTimers[id].length === 0) && (
-              <p className="text-xs text-center py-2" style={{ color: colors.textLight }}>{t("noTimers")}</p>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // Timer Modal
-  const TimerModal = () => {
-    if (!showTimerModal.show) return null;
-    const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-    return (
-      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-        <div className="bg-white rounded-xl p-6 w-full max-w-md mx-4">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold" style={{ color: colors.textDark }}>
-              {t("scheduleTimer")} - {showTimerModal.pump === "pump1" ? "Pump 1" : "Pump 2"}
-            </h3>
-            <button onClick={closeTimerModal}>
-              <XCircle className="w-5 h-5" style={{ color: colors.textLight }} />
-            </button>
-          </div>
-
-          <div className="space-y-4">
-            <div>
-              <label className="text-sm font-medium mb-1 block" style={{ color: colors.textDark }}>{t("startTime")}</label>
-              <div className="grid grid-cols-[1fr_1fr_auto] gap-2">
-                <select
-                  value={newTimer.hour}
-                  onChange={(e) => setNewTimer((prev) => ({ ...prev, hour: e.target.value }))}
-                  className="h-11 rounded-md border px-3 text-sm"
-                  style={{ borderColor: colors.creamDark, color: colors.textDark, background: isDark ? "#0f1d16" : "white" }}
-                >
-                  <option value="">Hour</option>
-                  {Array.from({ length: 12 }, (_, i) => String(i + 1)).map((hour) => (
-                    <option key={hour} value={hour}>{hour}</option>
-                  ))}
-                </select>
-                <select
-                  value={newTimer.minute}
-                  onChange={(e) => setNewTimer((prev) => ({ ...prev, minute: e.target.value }))}
-                  className="h-11 rounded-md border px-3 text-sm"
-                  style={{ borderColor: colors.creamDark, color: colors.textDark, background: isDark ? "#0f1d16" : "white" }}
-                >
-                  {Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, "0")).map((minute) => (
-                    <option key={minute} value={minute}>{minute}</option>
-                  ))}
-                </select>
-                <div className="inline-flex rounded-md border overflow-hidden" style={{ borderColor: colors.creamDark }}>
-                  {["AM", "PM"].map((period) => (
-                    <button
-                      key={period}
-                      type="button"
-                      onClick={() => setNewTimer((prev) => ({ ...prev, period }))}
-                      className={`px-3 text-sm font-medium ${newTimer.period === period ? "bg-green-600 text-white" : ""}`}
-                      style={newTimer.period === period ? {} : { color: colors.textMid, background: isDark ? "#0f1d16" : "white" }}
-                    >
-                      {period}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-            <div>
-              <label className="text-sm font-medium mb-1 block" style={{ color: colors.textDark }}>{t("duration")}</label>
-              <Input type="number" min="1" max="480" placeholder="e.g., 30" value={newTimer.duration} onChange={(e) => setNewTimer((prev) => ({ ...prev, duration: e.target.value }))} className="w-full" />
-            </div>
-            <div>
-              <label className="text-sm font-medium mb-2 block" style={{ color: colors.textDark }}>{t("days")}</label>
-              <div className="flex gap-2 flex-wrap">
-                {days.map((day, idx) => (
-                  <button
-                    key={day}
-                    type="button"
-                    onClick={() => {
-                      setNewTimer((prev) => ({
-                        ...prev,
-                        days: prev.days.includes(idx) ? prev.days.filter((d) => d !== idx) : [...prev.days, idx],
-                      }));
-                    }}
-                    className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${newTimer.days.includes(idx) ? "bg-green-500 text-white border-green-500" : "bg-white border-gray-200 hover:border-gray-300"}`}
-                    style={newTimer.days.includes(idx) ? {} : { color: colors.textMid }}
-                  >
-                    {day}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="flex gap-3 mt-6">
-            <Button variant="outline" onClick={closeTimerModal} className="flex-1">{t("cancel")}</Button>
-            <Button onClick={handleAddTimer} className="flex-1 bg-green-600 hover:bg-green-700">{t("saveTimer")}</Button>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   // Field Map Component
   const FieldMap = () => {
     const zoneHasAlert = (zoneName) => activeSensorAlerts.some((alert) => alert.zone === zoneName);
@@ -1907,7 +1708,7 @@ export default function Dashboard() {
             {/* Metric Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <MetricCard icon={Droplets} title="Soil Moisture" value={sensorData.soilMoisture} unit="%" color="green" progress={sensorData.soilMoisture} />
-              <MetricCard icon={CloudSun} title="Temperature" value={sensorData.temperature} unit="캜" color="orange" progress={isPresent(sensorData.temperature) ? percentValue(sensorData.temperature, 40) : null} />
+              <MetricCard icon={CloudSun} title="Temperature" value={sensorData.temperature} unit="째C" color="orange" progress={isPresent(sensorData.temperature) ? percentValue(sensorData.temperature, 40) : null} />
               <MetricCard icon={Radio} title="Humidity" value={sensorData.humidity} unit="%" color="blue" progress={sensorData.humidity} />
               <MetricCard icon={Sprout} title="Soil pH" value={displayValue(sensorData.soilPh)} unit="" color="gold" progress={isPresent(sensorData.soilPh) ? percentValue(sensorData.soilPh, 10) : null} />
             </div>
@@ -1954,7 +1755,7 @@ export default function Dashboard() {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               <SensorCard icon={Droplets} title="Soil Moisture" value={sensorData.soilMoisture} unit="%" color="green" min="0%" max="100%" barValue={sensorData.soilMoisture} />
-              <SensorCard icon={CloudSun} title="Temperature" value={sensorData.temperature} unit="캜" color="orange" min="10캜" max="45캜" barValue={isPresent(sensorData.temperature) ? ((sensorData.temperature - 10) / 35) * 100 : null} />
+              <SensorCard icon={CloudSun} title="Temperature" value={sensorData.temperature} unit="째C" color="orange" min="10째C" max="45째C" barValue={isPresent(sensorData.temperature) ? ((sensorData.temperature - 10) / 35) * 100 : null} />
               <SensorCard icon={Radio} title="Humidity" value={sensorData.humidity} unit="%" color="blue" min="0%" max="100%" barValue={sensorData.humidity} />
               <SensorCard icon={Sprout} title="Soil pH" value={displayValue(sensorData.soilPh)} unit="" color="gold" min="4" max="10" barValue={isPresent(sensorData.soilPh) ? ((sensorData.soilPh - 4) / 6) * 100 : null} />
               <SensorCard icon={Leaf} title="Nitrogen" value={sensorData.nitrogen} unit="mg/kg" color="green" min="0" max="100" barValue={isPresent(sensorData.nitrogen) ? Math.min(sensorData.nitrogen, 100) : null} />
@@ -1989,7 +1790,7 @@ export default function Dashboard() {
                     <td className="py-3 px-3 font-mono" style={{ color: colors.textDark }}>{displayValue(userData.sensorDeviceId)}</td>
                     <td className="py-3 px-3" style={{ color: colors.textMid }}>Zone A</td>
                     <td className="py-3 px-3 font-mono" style={{ color: colors.textDark }}>{displayValue(sensorData.soilMoisture, "%")}</td>
-                    <td className="py-3 px-3 font-mono" style={{ color: colors.textDark }}>{displayValue(sensorData.temperature, "캜")}</td>
+                    <td className="py-3 px-3 font-mono" style={{ color: colors.textDark }}>{displayValue(sensorData.temperature, "째C")}</td>
                     <td className="py-3 px-3 font-mono" style={{ color: colors.textDark }}>{displayValue(sensorData.humidity, "%")}</td>
                     <td className="py-3 px-3 font-mono" style={{ color: colors.textDark }}>{displayValue(sensorData.soilPh)}</td>
                     <td className="py-3 px-3 font-mono" style={{ color: colors.textDark }}>{[sensorData.nitrogen, sensorData.phosphorus, sensorData.potassium].every(isPresent) ? `${sensorData.nitrogen}/${sensorData.phosphorus}/${sensorData.potassium}` : EMPTY_DISPLAY}</td>
@@ -2006,18 +1807,25 @@ export default function Dashboard() {
 
       case "pump":
         return (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <PumpCard id="pump1" name="Pump 1" zone={`Zone A - ${displayValue(userData.zoneA)}`} pump={pumps.pump1} />
-              <PumpCard id="pump2" name="Pump 2" zone={`Zone B - ${displayValue(userData.zoneB)}`} pump={pumps.pump2} />
-            </div>
-            <div className="p-5 rounded-xl bg-white border border-[#e8e3d8] shadow-sm">
-              <h3 className="font-semibold mb-4" style={{ color: colors.textDark }}>Weekly Irrigation Log</h3>
-              <div className="h-44 flex items-center justify-center text-sm" style={{ color: colors.textLight }}>
-                {EMPTY_DISPLAY}
-              </div>
-            </div>
-          </div>
+          <PumpControlPanel
+            colors={colors}
+            isDark={isDark}
+            userData={userData}
+            pumps={pumps}
+            pumpUpdating={pumpUpdating}
+            scheduledTimers={scheduledTimers}
+            showTimerModal={showTimerModal}
+            newTimer={newTimer}
+            setNewTimer={setNewTimer}
+            t={t}
+            togglePump={togglePump}
+            openTimerModal={openTimerModal}
+            closeTimerModal={closeTimerModal}
+            removeTimer={removeTimer}
+            handleAddTimer={handleAddTimer}
+            formatTime={formatTime}
+            formatTimerStartTime={formatTimerStartTime}
+          />
         );
 
       case "weather":
@@ -2049,7 +1857,7 @@ export default function Dashboard() {
                 <div className="flex items-center gap-4 mb-4">
                   <span className="text-5xl">{weatherCond?.icon || EMPTY_DISPLAY}</span>
                   <div>
-                    <p className="text-4xl font-mono font-bold" style={{ color: colors.cream }}>{displayValue(weather.temp, "캜")}</p>
+                    <p className="text-4xl font-mono font-bold" style={{ color: colors.cream }}>{displayValue(weather.temp, "째C")}</p>
                     <p className="text-lg" style={{ color: colors.creamDark }}>{weatherCond?.condition || EMPTY_DISPLAY}</p>
                   </div>
                 </div>
@@ -2138,8 +1946,8 @@ export default function Dashboard() {
                     <p className="text-sm font-medium mb-2" style={{ color: colors.textDark }}>{item.day}</p>
                     <span className="text-3xl">{item.icon}</span>
                     <div className="mt-2">
-                      <p className="font-mono font-bold" style={{ color: colors.textDark }}>{displayValue(item.high, "�")}</p>
-                      <p className="text-sm" style={{ color: colors.textLight }}>{displayValue(item.low, "�")}</p>
+                      <p className="font-mono font-bold" style={{ color: colors.textDark }}>{displayValue(item.high, "째")}</p>
+                      <p className="text-sm" style={{ color: colors.textLight }}>{displayValue(item.low, "째")}</p>
                     </div>
                   </div>
                 ))}
@@ -2192,173 +2000,19 @@ export default function Dashboard() {
         );
 
       case "market":
-        const prices = Array.isArray(marketData?.prices) ? marketData.prices : [];
-        const mandis = Array.isArray(marketData?.mandis) ? marketData.mandis : [];
-        const marketLocation = marketData?.requestedLocation || getUserMarketLocation() || EMPTY_DISPLAY;
-        const marketMessage = marketError || marketData?.message || "";
         return (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="lg:col-span-2 p-5 rounded-xl bg-white border border-[#e8e3d8] shadow-sm">
-                <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-                  <div>
-                    <h3 className="font-semibold" style={{ color: colors.textDark }}>Latest Mandi Prices</h3>
-                    <p className="text-xs mt-1" style={{ color: colors.textLight }} data-dynamic-value>
-                      {marketLocation}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {marketLoading && (
-                      <span className="text-xs" style={{ color: colors.textLight }}>Loading</span>
-                    )}
-                    <Button
-                      type="button"
-                      onClick={() => loadMarketPrices()}
-                      disabled={marketLoading}
-                      className="h-9 px-3"
-                      style={{ background: colors.greenMid, color: colors.cream }}
-                    >
-                      <RefreshCw className={`w-4 h-4 mr-2 ${marketLoading ? "animate-spin" : ""}`} />
-                      Refresh
-                    </Button>
-                  </div>
-                </div>
-                <div className="space-y-3">
-                  {prices.map((crop, index) => (
-                    <div key={`${crop.market || "market"}-${crop.commodity || "commodity"}-${crop.arrivalDate || index}`} className="flex items-center justify-between gap-4 p-3 rounded-lg hover:bg-gray-50 transition-colors">
-                      <div className="flex items-center gap-3">
-                        <span className="p-2 rounded-lg bg-green-50 text-green-700">
-                          <BarChart3 className="w-5 h-5" />
-                        </span>
-                        <div>
-                          <p className="font-medium" style={{ color: colors.textDark }}>
-                            {crop.commodity || EMPTY_DISPLAY}
-                          </p>
-                          <p className="text-xs" style={{ color: colors.textLight }} data-dynamic-value>
-                            {[crop.market, crop.district, crop.state].filter(Boolean).join(", ") || EMPTY_DISPLAY}
-                          </p>
-                          <p className="text-xs" style={{ color: colors.textLight }}>
-                            Variety: {crop.variety || EMPTY_DISPLAY} | Grade: {crop.grade || EMPTY_DISPLAY}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-mono font-bold" style={{ color: colors.textDark }} data-dynamic-value>
-                          {displayRupees(crop.modalPrice)}
-                        </p>
-                        <p className="text-xs" style={{ color: colors.textLight }} data-dynamic-value>
-                          {displayRupees(crop.minPrice)} - {displayRupees(crop.maxPrice)}
-                        </p>
-                        <p className="text-xs" style={{ color: colors.textLight }} data-dynamic-value>
-                          {crop.arrivalDate || EMPTY_DISPLAY}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                  {!prices.length && (
-                    <div className="p-6 text-center text-sm" style={{ color: colors.textLight }}>
-                      {marketLoading ? "Loading live mandi prices..." : (marketMessage || EMPTY_DISPLAY)}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                {mandis.map((mandi, idx) => (
-                  <div key={`${mandi.name || "mandi"}-${mandi.district || idx}`} className="p-5 rounded-xl" style={{ background: idx === 0 ? `linear-gradient(135deg, ${colors.greenDark}, #0f2a1f)` : `linear-gradient(135deg, ${colors.terracotta}, #a0522d)` }}>
-                    <h3 className="font-semibold mb-3" style={{ color: colors.cream }}>{mandi.name || EMPTY_DISPLAY}</h3>
-                    <p className="text-sm mb-3" style={{ color: colors.creamDark }} data-dynamic-value>
-                      {[mandi.district, mandi.state].filter(Boolean).join(", ") || EMPTY_DISPLAY}
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      {(Array.isArray(mandi.commodities) ? mandi.commodities : []).map((item, itemIndex) => (
-                        <span key={`${item.commodity || "commodity"}-${itemIndex}`} className="px-2 py-1 text-xs rounded-full" style={{ background: "rgba(255,255,255,0.15)", color: colors.cream }} data-dynamic-value>
-                          {item.commodity || EMPTY_DISPLAY}: {displayRupees(item.modalPrice)}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-                {!mandis.length && (
-                  <div className="p-6 rounded-xl bg-white border border-[#e8e3d8] text-center text-sm" style={{ color: colors.textLight }}>
-                    {marketLoading ? "Loading nearby mandis..." : EMPTY_DISPLAY}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="p-5 rounded-xl bg-white border border-[#e8e3d8] shadow-sm">
-              <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-                <div>
-                  <h3 className="font-semibold" style={{ color: colors.textDark }}>AI Market Advice</h3>
-                  <p className="text-xs mt-1" style={{ color: colors.textLight }}>
-                    Uses live mandi records plus your profile and latest ESP32 context.
-                  </p>
-                </div>
-                <Button
-                  type="button"
-                  onClick={loadMarketInsight}
-                  disabled={marketInsightLoading}
-                  className="h-9 px-3"
-                  style={{ background: colors.terracotta, color: colors.cream }}
-                >
-                  <Brain className="w-4 h-4 mr-2" />
-                  {marketInsightLoading ? "Analyzing" : "Use AI"}
-                </Button>
-              </div>
-              <div className="p-4 rounded-lg bg-green-50 text-sm" style={{ color: colors.textDark }} data-dynamic-value>
-                {marketInsightLoading
-                  ? "AI is checking the live market feed..."
-                  : marketInsight?.summary || marketInsightError || EMPTY_DISPLAY}
-              </div>
-              {(marketInsight?.recommendations || []).length > 0 && (
-                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {marketInsight.recommendations.map((item, index) => (
-                    <div key={`${item.title || "recommendation"}-${index}`} className="p-4 rounded-lg border border-[#e8e3d8] bg-gray-50">
-                      <div className="flex items-start justify-between gap-3">
-                        <h4 className="font-medium" style={{ color: colors.textDark }}>{item.title || EMPTY_DISPLAY}</h4>
-                        <span className="text-[11px] px-2 py-1 rounded-full bg-white" style={{ color: colors.textMid }}>
-                          {item.confidence || "low"}
-                        </span>
-                      </div>
-                      <p className="mt-2 text-sm" style={{ color: colors.textMid }} data-dynamic-value>{item.action || EMPTY_DISPLAY}</p>
-                      <p className="mt-2 text-xs" style={{ color: colors.textLight }} data-dynamic-value>{item.reason || EMPTY_DISPLAY}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {(marketInsight?.watch || []).length > 0 && (
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {marketInsight.watch.map((item, index) => (
-                    <span key={`${item}-${index}`} className="px-3 py-1 rounded-full text-xs bg-amber-50 text-amber-800" data-dynamic-value>
-                      {item}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="p-5 rounded-xl bg-white border border-[#e8e3d8] shadow-sm">
-              <h3 className="font-semibold mb-4" style={{ color: colors.textDark }}>Market Source</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
-                <div className="p-3 rounded-lg bg-gray-50">
-                  <p className="text-xs" style={{ color: colors.textLight }}>Source</p>
-                  <p style={{ color: colors.textDark }}>{marketData?.source || EMPTY_DISPLAY}</p>
-                </div>
-                <div className="p-3 rounded-lg bg-gray-50">
-                  <p className="text-xs" style={{ color: colors.textLight }}>Records</p>
-                  <p className="font-mono" style={{ color: colors.textDark }} data-dynamic-value>{displayValue(marketData?.recordsCount)}</p>
-                </div>
-                <div className="p-3 rounded-lg bg-gray-50">
-                  <p className="text-xs" style={{ color: colors.textLight }}>Updated</p>
-                  <p className="font-mono text-xs" style={{ color: colors.textDark }} data-dynamic-value>{marketData?.updatedAt || EMPTY_DISPLAY}</p>
-                </div>
-              </div>
-              <div className="mt-4 p-4 rounded-lg bg-amber-50 text-sm text-amber-800" data-dynamic-value>
-                {marketMessage || "Prices are pulled from the live government mandi feed for your saved profile location."}
-              </div>
-            </div>
-          </div>
+          <MarketPanel
+            colors={colors}
+            marketData={marketData}
+            marketError={marketError}
+            marketLoading={marketLoading}
+            marketInsight={marketInsight}
+            marketInsightError={marketInsightError}
+            marketInsightLoading={marketInsightLoading}
+            getUserMarketLocation={getUserMarketLocation}
+            loadMarketPrices={loadMarketPrices}
+            loadMarketInsight={loadMarketInsight}
+          />
         );
 
       case "flow":
@@ -2423,77 +2077,24 @@ export default function Dashboard() {
 
       case "ai":
         return (
-          <div className="space-y-6">
-            <div className="p-5 rounded-xl bg-white border border-[#e8e3d8] shadow-sm">
-              <div className="rounded-xl overflow-hidden flex flex-col" style={{ height: "500px" }}>
-                <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-4 space-y-4">
-                  {chatMessages.map((msg) => (
-                    <div key={msg.id} className={`flex gap-3 ${msg.type === "user" ? "flex-row-reverse" : ""}`}>
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0`} style={msg.type === "bot" ? { background: colors.greenDark, color: "white" } : { background: `linear-gradient(135deg, ${colors.greenMid}, ${colors.terracotta})`, color: "white" }}>
-                        {msg.type === "bot" ? "AI" : (userData.name.charAt(0) || "U")}
-                      </div>
-                      <div className={`max-w-[85%] sm:max-w-[70%] p-4 rounded-xl ${msg.type === "bot" ? "bg-white border border-[#e8e3d8]" : ""}`} style={msg.type === "bot" ? { borderTopLeftRadius: "4px" } : { background: colors.greenDark, borderTopRightRadius: "4px" }}>
-                        <p data-no-translate="true" className="text-sm" style={{ color: msg.type === "bot" ? colors.textDark : colors.cream }}>{renderChatText(msg.text)}</p>
-                        {msg.type === "user" && (
-                          <p className="mt-2 text-xs" style={{ color: colors.goldLight }}>
-                            Farm assistant
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                  {isTyping && (
-                    <div className="flex gap-3">
-                      <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: colors.greenDark, color: "white" }}>Location</div>
-                      <div className="p-4 rounded-xl bg-white border border-[#e8e3d8]">
-                        <div className="flex gap-1">
-                          <span className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: "0ms" }} />
-                          <span className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: "150ms" }} />
-                          <span className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: "300ms" }} />
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {showSuggestions && (
-                  <div className="px-4 py-2 flex gap-2 flex-wrap border-t" style={{ borderColor: colors.creamDark }}>
-                    {suggestionChips.map((chip) => (
-                      <button
-                        key={chip}
-                        onClick={() => handleSuggestionClick(ct(chip), chip)}
-                        className="px-3 py-1.5 text-sm rounded-full border transition-colors hover:bg-gray-50"
-                        style={{ borderColor: colors.creamDark, color: colors.textMid }}
-                      >
-                        {ct(chip)}
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                <div className="flex flex-col gap-2 p-4 border-t" style={{ borderColor: colors.creamDark }}>
-                  <div className="flex gap-2">
-                    <Input value={chatInput} onChange={(e) => setChatInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleSendMessage()} placeholder={ct("chatPlaceholder")} className="flex-1" />
-                    <Button
-                      onClick={isListening ? stopListening : startListening}
-                      disabled={isTyping}
-                      className={`px-3 ${isListening ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-500 hover:bg-blue-600'}`}
-                    >
-                      {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-                    </Button>
-                    <Button onClick={() => handleSendMessage()} disabled={!chatInput.trim() || isTyping} className="bg-green-600 hover:bg-green-700">
-                      <Send className="w-4 h-4" />
-                    </Button>
-                  </div>
-                  {language !== 'en' && (
-                    <p className="text-xs text-gray-500">
-                      Voice input listens in {languages.find((lang) => lang.code === language)?.name || language}; replies use the selected language.
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
+          <AiChatPanel
+            colors={colors}
+            chatContainerRef={chatContainerRef}
+            chatMessages={chatMessages}
+            userName={userData.name}
+            isTyping={isTyping}
+            showSuggestions={showSuggestions}
+            suggestionChips={suggestionChips}
+            ct={ct}
+            handleSuggestionClick={handleSuggestionClick}
+            chatInput={chatInput}
+            setChatInput={setChatInput}
+            handleSendMessage={handleSendMessage}
+            isListening={isListening}
+            startListening={startListening}
+            stopListening={stopListening}
+            language={language}
+          />
         );
 
       case "cropPlanner":
@@ -3027,7 +2628,6 @@ export default function Dashboard() {
         <div className="p-3 sm:p-5 md:p-6 pt-[80px] md:pt-[80px]">{renderPage()}</div>
       </main>
 
-      <TimerModal />
     </div>
   );
 }

@@ -1,7 +1,9 @@
 import os
 import unittest
+import urllib.error
 from datetime import datetime, timezone
 from decimal import Decimal
+from unittest.mock import patch
 
 from pydantic import ValidationError
 
@@ -15,6 +17,7 @@ from crop_ai_agent import (  # noqa: E402
     has_core_sensor_context,
     missing_crop_readings,
 )
+from pump_control import relay_command_text, relay_status_payload  # noqa: E402
 
 
 class BackendCoreBehaviourTests(unittest.TestCase):
@@ -164,6 +167,46 @@ class BackendCoreBehaviourTests(unittest.TestCase):
         self.assertEqual(state, "Maharashtra")
         self.assertEqual(district, "Pune")
         self.assertEqual(requested_location, "Baramati, Pune, Maharashtra")
+
+    def test_farmers_user_table_names_avoid_hyphen_footgun(self):
+        self.assertEqual(api.USER_TABLE, "users")
+        self.assertEqual(api.LEGACY_USER_TABLE, "sign-in")
+        self.assertEqual(api.quote_identifier("users"), "`users`")
+
+        with self.assertRaises(ValueError):
+            api.quote_identifier("users; DROP TABLE users")
+
+    def test_relay_command_text_uses_explicit_db_states(self):
+        command = relay_command_text({1: True, 2: False, 8: True})
+        self.assertEqual(command, "1on 2off 3off 4off 5off 6off 7off 8on")
+
+        payload = relay_status_payload({1: True})
+        self.assertTrue(payload["desired"]["1"])
+        self.assertFalse(payload["desired"]["2"])
+
+    def test_request_json_retries_transient_network_failures(self):
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+            def read(self):
+                return b'{"ok": true}'
+
+        calls = {"count": 0}
+
+        def fake_urlopen(*args, **kwargs):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise urllib.error.URLError("temporary")
+            return FakeResponse()
+
+        with patch("http_client.urllib.request.urlopen", side_effect=fake_urlopen), patch("http_client.time.sleep"):
+            self.assertEqual(api.request_json("https://example.test", attempts=2), {"ok": True})
+
+        self.assertEqual(calls["count"], 2)
 
 
 if __name__ == "__main__":

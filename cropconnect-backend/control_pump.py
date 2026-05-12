@@ -11,6 +11,11 @@ import os
 import urllib.error
 import urllib.request
 
+from logging_config import configure_logging
+
+
+logger = configure_logging()
+
 
 def control_pump(pump_id="pump1", turn_on=True):
     """
@@ -22,7 +27,7 @@ def control_pump(pump_id="pump1", turn_on=True):
     """
     token = os.getenv("CROPCONNECT_AUTH_TOKEN", "")
     if not token:
-        print("Set CROPCONNECT_AUTH_TOKEN to a dashboard login token before using this helper.")
+        logger.error("Set CROPCONNECT_AUTH_TOKEN to a dashboard login token before using this helper.")
         return False
 
     api_base_url = os.getenv("CROPCONNECT_API_URL", "http://localhost:8001/api").rstrip("/")
@@ -46,18 +51,18 @@ def control_pump(pump_id="pump1", turn_on=True):
 
         with urllib.request.urlopen(req) as response:
             result = json.loads(response.read().decode("utf-8"))
-            print(f"Pump {pump_id} command queued: {'ON' if turn_on else 'OFF'}")
-            print(f"Response: {result}")
+            logger.info("Pump %s command queued: %s", pump_id, "ON" if turn_on else "OFF")
+            logger.info("Response: %s", result)
             return True
 
     except urllib.error.HTTPError as exc:
-        print(f"HTTP Error {exc.code}: {exc.reason}")
+        logger.error("HTTP Error %s: %s", exc.code, exc.reason)
         return False
     except urllib.error.URLError as exc:
-        print(f"Network Error: {exc.reason}")
+        logger.error("Network Error: %s", exc.reason)
         return False
     except Exception as exc:
-        print(f"Error: {exc}")
+        logger.exception("Pump command helper failed: %s", exc)
         return False
 
 
@@ -73,10 +78,10 @@ if __name__ == "__main__":
         elif action in ["off", "false", "0"]:
             control_pump(pump_id, False)
         else:
-            print("Usage: python control_pump.py [on|off] [pump_id]")
+            logger.info("Usage: python control_pump.py [on|off] [pump_id]")
     else:
-        print("CropConnect Pump Command Queue Helper")
-        print("Usage: python control_pump.py [on|off] [pump_id]")
-        print("Requires CROPCONNECT_AUTH_TOKEN in the environment.")
-        print("Optional: set CROPCONNECT_DEVICE_ID to queue for a specific sensorDeviceId.")
-        print("Optional: set CROPCONNECT_API_URL to target another backend API base URL.")
+        logger.info("CropConnect Pump Command Queue Helper")
+        logger.info("Usage: python control_pump.py [on|off] [pump_id]")
+        logger.info("Requires CROPCONNECT_AUTH_TOKEN in the environment.")
+        logger.info("Optional: set CROPCONNECT_DEVICE_ID to queue for a specific sensorDeviceId.")
+        logger.info("Optional: set CROPCONNECT_API_URL to target another backend API base URL.")

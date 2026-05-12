@@ -5,6 +5,9 @@ FastAPI service for receiving ESP32 sensor readings, storing them in MySQL, send
 ## Files
 
 - `esp32_ingest.py` - Python API server.
+- `http_client.py` - retrying JSON HTTP client for OpenAI, Data.gov, and weather calls.
+- `db_utils.py` - SQL identifier, schema, and migration helpers.
+- `logging_config.py` - structured backend logging setup.
 - `migrate_db.py` - explicit MySQL migration runner.
 - `schema.sql` - MySQL database and table setup.
 - `.env.example` - environment variables.
@@ -15,9 +18,11 @@ FastAPI service for receiving ESP32 sensor readings, storing them in MySQL, send
 cd cropconnect-backend
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements.lock.txt
 mysql -u root -p < schema.sql
 ```
+
+Use `requirements.txt` only when intentionally refreshing dependency versions; use `requirements.lock.txt` for deploys and repeatable local installs.
 
 Set environment variables, or copy `.env.example` values into your shell.
 
