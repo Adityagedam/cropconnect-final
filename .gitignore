@@ -1,0 +1,13 @@
+cropconnect-backend/.env
+cropconnect-backend/.venv/
+.uv-cache/
+__pycache__/
+*.pyc
+node_modules/
+cropconnect-frontend/build/
+dist/
+*.log
+.env
+.env.local
+.DS_Store
+.vscode/

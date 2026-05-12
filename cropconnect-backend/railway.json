@@ -1,0 +1,8 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "deploy": {
+    "startCommand": "python migrate_db.py && python esp32_ingest.py",
+    "healthcheckPath": "/api/health",
+    "healthcheckTimeout": 30
+  }
+}
