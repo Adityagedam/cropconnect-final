@@ -7,7 +7,7 @@ from app import app
 from config import settings
 from db import migrations as db_migrations
 from db.connections import configure_connections, get_connection, get_farmers_connection, get_server_connection
-from db_utils import add_column_if_missing, column_exists, index_exists, quote_identifier, table_exists
+from db_utils import add_column_if_missing, column_exists, drop_column_if_exists, index_exists, quote_identifier, table_exists
 from logging_config import configure_logging
 from security_crypto import encrypt_text
 from services.esp32_service import esp32_key_hash
@@ -41,6 +41,7 @@ configure_connections(DB_CONFIG, FARMERS_DATABASE, MYSQL_POOL_SIZE)
 _MIGRATION_COMPAT_EXPORTS = (
     add_column_if_missing,
     column_exists,
+    drop_column_if_exists,
     encrypt_text,
     esp32_key_hash,
     get_connection,
