@@ -1,5 +1,6 @@
 import hashlib
 import threading
+from contextlib import contextmanager
 from typing import Any
 
 import mysql.connector
@@ -24,6 +25,7 @@ def configure_connections(db_config: dict[str, Any], farmers_database: str, mysq
     _mysql_pool_size = max(1, int(mysql_pool_size))
 
 
+@contextmanager
 def get_connection():
     global _main_db_pool
     if _main_db_pool is None:
@@ -35,15 +37,25 @@ def get_connection():
                     pool_reset_session=True,
                     **_db_config,
                 )
-    return _main_db_pool.get_connection()
+    conn = _main_db_pool.get_connection()
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
+@contextmanager
 def get_server_connection():
     config = {**_db_config}
     config.pop("database", None)
-    return mysql.connector.connect(**config)
+    conn = mysql.connector.connect(**config)
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
+@contextmanager
 def get_farmers_connection(database: str | None = None):
     pool_key = database or _farmers_database
     if pool_key not in _farmers_db_pools:
@@ -55,4 +67,8 @@ def get_farmers_connection(database: str | None = None):
                     pool_reset_session=True,
                     **{**_db_config, "database": pool_key},
                 )
-    return _farmers_db_pools[pool_key].get_connection()
+    conn = _farmers_db_pools[pool_key].get_connection()
+    try:
+        yield conn
+    finally:
+        conn.close()

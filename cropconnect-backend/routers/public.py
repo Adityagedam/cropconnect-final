@@ -17,14 +17,24 @@ def raise_public_error(status_code: int, detail: str, _context: str, exc: Except
 
 @router.get("/api/health")
 def health():
+    status = {"ok": True, "database": "unknown", "farmers_database": settings.mysql_farmers_database}
     try:
       with get_connection() as conn:
           conn.ping(reconnect=True, attempts=1, delay=0)
+      status["database"] = "connected"
+    except Exception as exc:
+      status["ok"] = False
+      status["database"] = f"unavailable: {type(exc).__name__}"
+
+    try:
       with get_farmers_connection() as farmers_conn:
           farmers_conn.ping(reconnect=True, attempts=1, delay=0)
-      return {"ok": True, "database": "connected", "farmers_database": settings.mysql_farmers_database}
+      status["farmers_database"] = f"{settings.mysql_farmers_database}:connected"
     except Exception as exc:
-      raise_public_error(503, "Database not connected", "Health check failed", exc)
+      status["ok"] = False
+      status["farmers_database"] = f"{settings.mysql_farmers_database}:unavailable:{type(exc).__name__}"
+
+    return status
 
 
 @router.get("/")
