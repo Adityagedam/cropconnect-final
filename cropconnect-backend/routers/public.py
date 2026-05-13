@@ -51,15 +51,17 @@ def root():
 @router.post("/api/enquiries")
 def enquiries(payload: EnquiryIn, request: Request):
     rate_limit_public_request(request, "enquiries", limit=5, window_seconds=300)
-    if not smtp_configured():
-        raise HTTPException(status_code=503, detail="Email delivery is not configured")
-    try:
-        send_enquiry_email(payload)
-    except Exception as exc:
-        raise_public_error(502, "Email delivery failed", "Enquiry email delivery failed", exc)
+    email_sent = False
+    if smtp_configured():
+        try:
+            send_enquiry_email(payload)
+            email_sent = True
+        except Exception as exc:
+            raise_public_error(502, "Email delivery failed", "Enquiry email delivery failed", exc)
 
     return {
         "ok": True,
         "message": "Enquiry received",
+        "email_sent": email_sent,
         "received_at": datetime.now(timezone.utc).isoformat(),
     }

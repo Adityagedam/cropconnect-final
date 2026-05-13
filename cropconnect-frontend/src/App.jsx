@@ -14,6 +14,7 @@ const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const CropPlanner = lazy(() => import("./pages/CropPlanner"));
 const LegalPage = lazy(() => import("./pages/LegalPage"));
+const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
 
 export { AUTH_CACHE_KEY } from "./lib/api";
 const AUTH_CACHE_TTL = 60_000;
@@ -93,6 +94,7 @@ function App() {
               <Route path="/privacy" element={<LegalPage type="privacy" />} />
               <Route path="/dashboard" element={<ProtectedPage><Dashboard /></ProtectedPage>} />
               <Route path="/crop-planner" element={<ProtectedPage><CropPlanner /></ProtectedPage>} />
+              <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </Suspense>
         </BrowserRouter>
