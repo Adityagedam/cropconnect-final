@@ -62,7 +62,14 @@ def market_prices(
                     "showing latest state-level records."
                 )
     except Exception as exc:
-        raise_public_error(502, "Market price request failed", "Data.gov mandi request failed", exc)
+        logger.exception("Data.gov mandi request failed, returning empty market payload: %s", exc)
+        return market_payload_from_records(
+            [],
+            state,
+            requested_location,
+            "",
+            "Live mandi feed is currently unavailable.",
+        )
 
     return market_payload_from_records(records, state, requested_location, matched_district, message)
 
