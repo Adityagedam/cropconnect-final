@@ -18,8 +18,6 @@ def configure_connections(db_config: dict[str, Any], farmers_database: str, mysq
     global _db_config, _farmers_database, _mysql_pool_size
     _db_config = {
         "connection_timeout": 10,
-        "read_timeout": 30,
-        "write_timeout": 30,
         **dict(db_config),
     }
     _farmers_database = farmers_database
