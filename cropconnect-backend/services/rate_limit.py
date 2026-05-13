@@ -28,6 +28,7 @@ def rate_limit_authenticated_request(owner_id: int, bucket: str, limit: int, win
 
 
 def rate_limit_named_key(bucket: str, client_key: str, limit: int, window_seconds: int) -> None:
+    global PUBLIC_RATE_LIMITS
     client_host = str(client_key or "unknown")[:255]
     try:
         with get_connection() as conn:
@@ -63,6 +64,15 @@ def rate_limit_named_key(bucket: str, client_key: str, limit: int, window_second
         logger.exception("MySQL rate limiter unavailable, using in-memory fallback: %s", exc)
 
     key = f"{bucket}:{client_host}"
+    # Fallback is process-local: multi-worker deployments get per-worker limits.
+    logger.warning(
+        "Rate limiter using in-memory fallback for key=%s - "
+        "limits are per-worker in multi-process deployments",
+        key,
+    )
+    if len(PUBLIC_RATE_LIMITS) > 50_000:
+        cutoff = sorted(PUBLIC_RATE_LIMITS.keys())[10_000]
+        PUBLIC_RATE_LIMITS = {k: v for k, v in PUBLIC_RATE_LIMITS.items() if k >= cutoff}
     now = time.time()
     recent = [timestamp for timestamp in PUBLIC_RATE_LIMITS.get(key, []) if now - timestamp < window_seconds]
     if len(recent) >= limit:

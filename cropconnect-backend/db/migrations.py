@@ -232,7 +232,7 @@ def ensure_farmers_tables() -> None:
           `name` VARCHAR(120) NULL,
           `state` VARCHAR(120) NULL,
           `location` VARCHAR(255) NULL,
-          `land size` DECIMAL(10,2) NULL,
+          `land_size` DECIMAL(10,2) NULL,
           `sensor_device_id` VARCHAR(80) NULL,
           PRIMARY KEY (`id`),
           UNIQUE KEY `uq_users_email` (`email`),
@@ -262,7 +262,10 @@ def ensure_farmers_tables() -> None:
                 logger.warning("Legacy farmers.%s table still exists alongside %s; leaving it untouched", LEGACY_USER_TABLE, USER_TABLE)
 
             cursor.execute(create_user_sql)
+            if column_exists(cursor, FARMERS_DATABASE, "users", "land size") and not column_exists(cursor, FARMERS_DATABASE, "users", "land_size"):
+                cursor.execute("ALTER TABLE `users` RENAME COLUMN `land size` TO `land_size`")
             add_column_if_missing(cursor, FARMERS_DATABASE, "users", "location_type", "VARCHAR(20) NULL")
+            add_column_if_missing(cursor, FARMERS_DATABASE, "users", "land_size", "DECIMAL(10,2) NULL")
             add_column_if_missing(cursor, FARMERS_DATABASE, "users", "district", "VARCHAR(120) NULL")
             add_column_if_missing(cursor, FARMERS_DATABASE, "users", "city", "VARCHAR(120) NULL")
             add_column_if_missing(cursor, FARMERS_DATABASE, "users", "village", "VARCHAR(120) NULL")

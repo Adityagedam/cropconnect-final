@@ -6,6 +6,7 @@ import { ProtectedPage } from "./App";
 describe("ProtectedPage", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    sessionStorage.clear();
   });
 
   it("redirects to login when the session is denied", async () => {

@@ -114,7 +114,8 @@ async def receive(
 ):
     try:
         data = await request.json()
-    except Exception:
+    except Exception as exc:
+        logger.exception("Falling back to query params after JSON parse failed: %s", exc)
         data = dict(request.query_params)
 
     if not isinstance(data, dict):

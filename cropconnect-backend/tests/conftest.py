@@ -47,7 +47,7 @@ class FakeCursor:
                 "name": params[3],
                 "state": params[4],
                 "location": params[5],
-                "land size": params[6],
+                "land_size": params[6],
                 "location_type": params[7],
                 "district": params[8],
                 "city": params[9],

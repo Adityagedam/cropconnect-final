@@ -11,11 +11,13 @@ from fastapi import HTTPException, Response
 
 from config import settings
 from db.connections import get_farmers_connection
+from logging_config import configure_logging
 from security_crypto import decrypt_text, sign_auth_token, verify_auth_token
 
 AUTH_COOKIE_NAME = "cropconnect_auth"
 CSRF_COOKIE_NAME = "cropconnect_csrf"
 AUTH_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 7
+logger = configure_logging()
 
 
 def decimal_to_float(value: Any) -> Any:
@@ -47,7 +49,7 @@ def user_row_to_payload(row: dict[str, Any]) -> dict[str, Any]:
         "district": district,
         "city": city,
         "village": village,
-        "landSize": decimal_to_float(row.get("land size")),
+        "landSize": decimal_to_float(row.get("land_size")),
         "sensorDeviceId": row.get("sensor_device_id") or "",
         "sensors": row.get("sensors") or "0",
         "pumps": row.get("pumps") or "0",
@@ -137,7 +139,8 @@ def insert_chat_record(
                     ),
                 )
             conn.commit()
-    except Exception:
+    except Exception as exc:
+        logger.exception("insert_chat_record failed: %s", exc)
         return
 
 

@@ -36,13 +36,12 @@ import {
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
-import ErrorBoundary from "../components/ErrorBoundary";
 import LanguageSelect, { languages } from "../components/LanguageSelect";
-import AiChatPanel from "../components/dashboard/AiChatPanel";
-import MarketPanel from "../components/dashboard/MarketPanel";
-import PumpControl from "../components/dashboard/PumpControl";
-import SensorPanel from "../components/dashboard/SensorPanel";
-import WeatherPanel from "../components/dashboard/WeatherPanel";
+import AiSection from "../components/dashboard/AiSection";
+import MarketSection from "../components/dashboard/MarketSection";
+import PumpSection from "../components/dashboard/PumpSection";
+import SensorSection from "../components/dashboard/SensorSection";
+import WeatherSection from "../components/dashboard/WeatherSection";
 import CropPlanner from "./CropPlanner";
 import { toast } from "sonner";
 import { API } from "../lib/api";
@@ -1115,51 +1114,45 @@ export default function Dashboard() {
 
       case "sensors":
         return (
-          <ErrorBoundary>
-            <SensorPanel
-              colors={colors}
-              sensorConnection={sensorConnection}
-              sensorData={sensorData}
-              userData={userData}
-            />
-          </ErrorBoundary>
+          <SensorSection
+            colors={colors}
+            sensorConnection={sensorConnection}
+            sensorData={sensorData}
+            userData={userData}
+          />
         );
 
       case "pump":
         return (
-          <ErrorBoundary>
-            <PumpControl
-              colors={colors}
-              isDark={isDark}
-              userData={userData}
-              pumps={pumps}
-              pumpUpdating={pumpUpdating}
-              scheduledTimers={scheduledTimers}
-              showTimerModal={showTimerModal}
-              newTimer={newTimer}
-              setNewTimer={setNewTimer}
-              t={t}
-              togglePump={togglePump}
-              openTimerModal={openTimerModal}
-              closeTimerModal={closeTimerModal}
-              removeTimer={removeTimer}
-              handleAddTimer={handleAddTimer}
-              formatTime={formatTime}
-              formatTimerStartTime={formatTimerStartTime}
-            />
-          </ErrorBoundary>
+          <PumpSection
+            colors={colors}
+            isDark={isDark}
+            userData={userData}
+            pumps={pumps}
+            pumpUpdating={pumpUpdating}
+            scheduledTimers={scheduledTimers}
+            showTimerModal={showTimerModal}
+            newTimer={newTimer}
+            setNewTimer={setNewTimer}
+            t={t}
+            togglePump={togglePump}
+            openTimerModal={openTimerModal}
+            closeTimerModal={closeTimerModal}
+            removeTimer={removeTimer}
+            handleAddTimer={handleAddTimer}
+            formatTime={formatTime}
+            formatTimerStartTime={formatTimerStartTime}
+          />
         );
 
       case "weather":
         return (
-          <ErrorBoundary>
-            <WeatherPanel
-              colors={colors}
-              weatherData={weatherData}
-              weatherError={weatherError}
-              userData={userData}
-            />
-          </ErrorBoundary>
+          <WeatherSection
+            colors={colors}
+            weatherData={weatherData}
+            weatherError={weatherError}
+            userData={userData}
+          />
         );
 
       case "notifications":
@@ -1199,20 +1192,18 @@ export default function Dashboard() {
 
       case "market":
         return (
-          <ErrorBoundary>
-            <MarketPanel
-              colors={colors}
-              marketData={marketData}
-              marketError={marketError}
-              marketLoading={marketLoading}
-              marketInsight={marketInsight}
-              marketInsightError={marketInsightError}
-              marketInsightLoading={marketInsightLoading}
-              getUserMarketLocation={getUserMarketLocation}
-              loadMarketPrices={loadMarketPrices}
-              loadMarketInsight={loadMarketInsight}
-            />
-          </ErrorBoundary>
+          <MarketSection
+            colors={colors}
+            marketData={marketData}
+            marketError={marketError}
+            marketLoading={marketLoading}
+            marketInsight={marketInsight}
+            marketInsightError={marketInsightError}
+            marketInsightLoading={marketInsightLoading}
+            getUserMarketLocation={getUserMarketLocation}
+            loadMarketPrices={loadMarketPrices}
+            loadMarketInsight={loadMarketInsight}
+          />
         );
 
       case "flow":
@@ -1277,26 +1268,24 @@ export default function Dashboard() {
 
       case "ai":
         return (
-          <ErrorBoundary>
-            <AiChatPanel
-              colors={colors}
-              chatContainerRef={chatContainerRef}
-              chatMessages={chatMessages}
-              userName={userData.name}
-              isTyping={isTyping}
-              showSuggestions={showSuggestions}
-              suggestionChips={suggestionChips}
-              ct={ct}
-              handleSuggestionClick={handleSuggestionClick}
-              chatInput={chatInput}
-              setChatInput={setChatInput}
-              handleSendMessage={handleSendMessage}
-              isListening={isListening}
-              startListening={startListening}
-              stopListening={stopListening}
-              language={language}
-            />
-          </ErrorBoundary>
+          <AiSection
+            colors={colors}
+            chatContainerRef={chatContainerRef}
+            chatMessages={chatMessages}
+            userName={userData.name}
+            isTyping={isTyping}
+            showSuggestions={showSuggestions}
+            suggestionChips={suggestionChips}
+            ct={ct}
+            handleSuggestionClick={handleSuggestionClick}
+            chatInput={chatInput}
+            setChatInput={setChatInput}
+            handleSendMessage={handleSendMessage}
+            isListening={isListening}
+            startListening={startListening}
+            stopListening={stopListening}
+            language={language}
+          />
         );
 
       case "cropPlanner":

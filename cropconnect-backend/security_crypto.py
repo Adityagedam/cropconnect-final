@@ -2,6 +2,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import os
 import secrets
 import time
@@ -14,6 +15,7 @@ PASSWORD_PREFIX = "pbkdf2_sha256"
 PBKDF2_ITERATIONS = 210_000
 AUTH_TOKEN_PREFIX = "ccauth.v1"
 AUTH_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 7
+logger = logging.getLogger("cropconnect")
 
 
 def _secret() -> str:
@@ -89,7 +91,8 @@ def verify_password(password: str, stored: str) -> bool:
         )
         actual = base64.b64encode(digest).decode("ascii")
         return hmac.compare_digest(actual, expected)
-    except Exception:
+    except Exception as exc:
+        logger.exception("verify_password failed: %s", exc)
         return False
 
 
@@ -133,5 +136,18 @@ def verify_auth_token(token: str) -> dict[str, Any] | None:
         if int(payload.get("exp", 0)) < int(time.time()):
             return None
         return payload if isinstance(payload, dict) else None
-    except Exception:
+    except Exception as exc:
+        logger.exception("verify_auth_token failed: %s", exc)
         return None
+
+
+def refresh_auth_token(token: str) -> str | None:
+    """Return a fresh token if the existing one is valid but expiring soon."""
+    payload = verify_auth_token(token)
+    if not payload:
+        return None
+    time_left = int(payload.get("exp", 0)) - int(time.time())
+    if time_left > 60 * 60 * 24:
+        return None
+    fresh = {key: value for key, value in payload.items() if key not in ("iat", "exp")}
+    return sign_auth_token(fresh)

@@ -9,11 +9,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from config import settings
 from db.connections import get_connection, get_farmers_connection
+from logging_config import configure_logging
 from models import AuthLoginIn, AuthPasswordResetConfirmIn, AuthPasswordResetRequestIn, AuthProfileUpdateIn, AuthSignupIn
-from security_crypto import encrypt_text, hash_password, verify_password
+from security_crypto import encrypt_text, hash_password, refresh_auth_token, verify_password
 from services import rate_limit as rate_limit_service
 from services.auth_service import (
     auth_token_for_user,
+    auth_token_from_request,
     clear_auth_cookie,
     generate_sensor_device_id,
     send_password_reset_email,
@@ -26,6 +28,7 @@ from services.auth_service import (
 from services.deps import get_current_user
 
 router = APIRouter()
+logger = configure_logging()
 
 ENCRYPTED_PROFILE_FIELDS = {"name", "phone", "state", "location", "city", "village", "district"}
 
@@ -69,7 +72,7 @@ def auth_signup(payload: AuthSignupIn, request: Request, response: Response):
           `name`,
           `state`,
           `location`,
-          `land size`,
+          `land_size`,
           `location_type`,
           `district`,
           `city`,
@@ -180,6 +183,16 @@ def auth_csrf(response: Response, _current_user: tuple[int, str] = Depends(get_c
     return {"ok": True, "csrfToken": csrf_token}
 
 
+@router.get("/api/auth/refresh")
+def auth_refresh(response: Response, request: Request):
+    token = auth_token_from_request(request.headers.get("authorization"), request.cookies.get("cropconnect_auth"))
+    fresh_token = refresh_auth_token(token)
+    if not fresh_token:
+        return {"ok": True, "refreshed": False}
+    csrf_token = set_auth_cookie(response, fresh_token)
+    return {"ok": True, "refreshed": True, "csrfToken": csrf_token}
+
+
 @router.get("/api/auth/profile")
 def auth_profile(current_user: tuple[int, str] = Depends(get_current_user)):
     owner_id, _owner_email = current_user
@@ -215,19 +228,14 @@ def auth_password_reset_request(payload: AuthPasswordResetRequestIn, request: Re
                             """,
                             (email, token_hash(reset_token), settings.password_reset_token_ttl_minutes),
                         )
-                        reset_token_id = cursor.lastrowid
                         conn.commit()
                         try:
                             send_password_reset_email(email, reset_url)
-                        except Exception:
-                            cursor.execute(
-                                "UPDATE password_reset_tokens SET used_at = UTC_TIMESTAMP() WHERE id = %s",
-                                (reset_token_id,),
-                            )
-                            conn.commit()
+                        except Exception as smtp_exc:
+                            logger.exception("Password reset email failed for %s: %s", email, smtp_exc)
                     conn.commit()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.exception("Password reset request failed for %s: %s", email, exc)
 
     return {
         "ok": True,
@@ -293,7 +301,7 @@ def auth_profile_update(payload: AuthProfileUpdateIn, current_user: tuple[int, s
         "phone": ("phone", "`phone` = %s"),
         "state": ("state", "`state` = %s"),
         "location": ("location", "`location` = %s"),
-        "land_size": ("land size", "`land size` = %s"),
+        "land_size": ("land_size", "`land_size` = %s"),
         "location_type": ("location_type", "`location_type` = %s"),
         "district": ("district", "`district` = %s"),
         "city": ("city", "`city` = %s"),

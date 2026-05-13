@@ -14,25 +14,46 @@ import { API } from "./lib/api";
 
 import { LandingLanguageProvider } from "./components/landing/LandingLanguageContext";
 
+export const AUTH_CACHE_KEY = "cc_auth_ok";
+const AUTH_CACHE_TTL = 60_000;
+
 export function ProtectedPage({ children }) {
   const location = useLocation();
-  const [authState, setAuthState] = useState("checking");
+  const [authState, setAuthState] = useState(() => {
+    const cached = sessionStorage.getItem(AUTH_CACHE_KEY);
+    if (cached) {
+      try {
+        const { ok, ts } = JSON.parse(cached);
+        if (ok && Date.now() - ts < AUTH_CACHE_TTL) return "allowed";
+      } catch {
+        sessionStorage.removeItem(AUTH_CACHE_KEY);
+      }
+    }
+    return "checking";
+  });
 
   useEffect(() => {
+    if (authState !== "checking") return undefined;
     let cancelled = false;
 
     fetch(`${API}/auth/profile`, { credentials: "include" })
       .then((response) => {
-        if (!cancelled) setAuthState(response.ok ? "allowed" : "denied");
+        if (!cancelled) {
+          sessionStorage.setItem(AUTH_CACHE_KEY, JSON.stringify({ ok: response.ok, ts: Date.now() }));
+          setAuthState(response.ok ? "allowed" : "denied");
+        }
       })
       .catch(() => {
-        if (!cancelled) setAuthState("denied");
+        if (!cancelled) {
+          sessionStorage.setItem(AUTH_CACHE_KEY, JSON.stringify({ ok: false, ts: Date.now() }));
+          setAuthState("denied");
+        }
       });
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [authState]);
 
   if (authState === "checking") {
     return (

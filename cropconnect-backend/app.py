@@ -1,11 +1,13 @@
 # FastAPI application creation, middleware, and router registration.
 import secrets
+import uuid
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 
 from config import settings
+from logging_config import request_id_var
 from routers import ai as ai_router
 from routers import auth as auth_router
 from routers import farm as farm_router
@@ -37,6 +39,18 @@ CSRF_EXEMPT_PATHS = {
 }
 
 app = FastAPI(title="CropConnect ESP32 Ingestion API", version="1.0.0")
+
+
+@app.middleware("http")
+async def attach_request_id(request: Request, call_next):
+    rid = request.headers.get("x-request-id") or str(uuid.uuid4())[:8]
+    token = request_id_var.set(rid)
+    try:
+        response = await call_next(request)
+    finally:
+        request_id_var.reset(token)
+    response.headers["x-request-id"] = rid
+    return response
 
 
 @app.middleware("http")

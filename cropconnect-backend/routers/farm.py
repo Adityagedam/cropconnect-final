@@ -30,7 +30,8 @@ def parse_json_column(value: Any, fallback: Any) -> Any:
         return value
     try:
         return json.loads(value)
-    except Exception:
+    except Exception as exc:
+        logger.exception("parse_json_column failed: %s", exc)
         return fallback
 
 

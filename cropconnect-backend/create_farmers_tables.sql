@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS `users` (
   `name` VARCHAR(512) NULL,
   `state` VARCHAR(512) NULL,
   `location` TEXT NULL,
-  `land size` DECIMAL(10,2) NULL,
+  `land_size` DECIMAL(10,2) NULL,
   `location_type` VARCHAR(20) NULL,
   `district` VARCHAR(512) NULL,
   `city` VARCHAR(512) NULL,

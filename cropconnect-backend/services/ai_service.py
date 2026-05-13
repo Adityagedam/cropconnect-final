@@ -176,7 +176,8 @@ def google_search(query: str, location: str | None = "") -> list[dict[str, str]]
     )
     try:
         data = request_json(url)
-    except Exception:
+    except Exception as exc:
+        logger.exception("google_search failed: %s", exc)
         return []
 
     return [
