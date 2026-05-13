@@ -66,6 +66,11 @@ export function useProfile(protectedFetch) {
     deviceId: "",
     nodeCount: "1",
   });
+  const [setupChecking, setSetupChecking] = useState(false);
+  const [setupCheckResult, setSetupCheckResult] = useState(null);
+  const [sensorApiKey, setSensorApiKey] = useState("");
+  const [sensorApiKeyLoading, setSensorApiKeyLoading] = useState(false);
+  const [sensorApiKeyError, setSensorApiKeyError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -122,6 +127,16 @@ export function useProfile(protectedFetch) {
     userLoaded,
     sensorSetupForm,
     setSensorSetupForm,
+    setupChecking,
+    setSetupChecking,
+    setupCheckResult,
+    setSetupCheckResult,
+    sensorApiKey,
+    setSensorApiKey,
+    sensorApiKeyLoading,
+    setSensorApiKeyLoading,
+    sensorApiKeyError,
+    setSensorApiKeyError,
     saveUserToMysql,
   };
 }

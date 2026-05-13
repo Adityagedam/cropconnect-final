@@ -11,6 +11,7 @@ os.environ.setdefault("CROP_AUTH_TOKEN_SECRET", "test-auth-secret-for-unit-tests
 import esp32_ingest as api  # noqa: E402
 from routers import auth as auth_routes  # noqa: E402
 from routers import sensors as sensor_routes  # noqa: E402
+from services import sensor_service  # noqa: E402
 
 
 class FakeCursor:
@@ -153,6 +154,7 @@ def fake_db(monkeypatch):
     monkeypatch.setattr(api, "get_farmers_connection", farmers_connection)
     monkeypatch.setattr(auth_routes, "get_farmers_connection", farmers_connection)
     monkeypatch.setattr(api, "get_connection", main_connection)
+    monkeypatch.setattr(sensor_service, "get_connection", main_connection)
     monkeypatch.setattr(sensor_routes, "get_connection", main_connection)
     monkeypatch.setattr(auth_routes, "get_connection", main_connection)
     return db

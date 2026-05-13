@@ -9,6 +9,7 @@ from logging_config import configure_logging
 
 logger = configure_logging()
 PUBLIC_RATE_LIMITS: dict[str, list[float]] = {}
+PUBLIC_RATE_LIMIT_DB_FAIL_OPEN = settings.public_rate_limit_db_fail_open
 
 
 def public_client_host(request: Request) -> str:
@@ -57,7 +58,7 @@ def rate_limit_named_key(bucket: str, client_key: str, limit: int, window_second
     except HTTPException:
         raise
     except Exception as exc:
-        if not settings.public_rate_limit_db_fail_open:
+        if not PUBLIC_RATE_LIMIT_DB_FAIL_OPEN:
             raise HTTPException(status_code=503, detail="Rate limiter is unavailable") from exc
         logger.exception("MySQL rate limiter unavailable, using in-memory fallback: %s", exc)
 

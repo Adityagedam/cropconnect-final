@@ -3,7 +3,6 @@ import { useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { API, clearCsrfToken, csrfHeadersAsync } from "../lib/api";
-import { useProfile } from "./useProfile";
 
 /**
  * Provides auth-aware fetch helpers, profile state, logout, and profile save behavior.
@@ -54,8 +53,6 @@ export function useAuth() {
     return response;
   }, [requireFreshLogin]);
 
-  const profile = useProfile(protectedFetch);
-
   const handleLogout = useCallback(async () => {
     try {
       await fetch(`${API}/auth/logout`, {
@@ -72,7 +69,6 @@ export function useAuth() {
   }, [navigate]);
 
   return {
-    ...profile,
     requireFreshLogin,
     protectedFetch,
     handleLogout,

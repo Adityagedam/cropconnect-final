@@ -49,6 +49,7 @@ import { API } from "../lib/api";
 import { useAiChat } from "../hooks/useAiChat";
 import { useAuth } from "../hooks/useAuth";
 import { useMarketData } from "../hooks/useMarketData";
+import { useProfile } from "../hooks/useProfile";
 import { usePumpControl } from "../hooks/usePumpControl";
 import { useSensorData } from "../hooks/useSensorData";
 import { useSpeech } from "../hooks/useSpeech";
@@ -226,11 +227,6 @@ export default function Dashboard() {
   const [activePage, setActivePage] = useState("dashboard");
   const [apiLogs, setApiLogs] = useState([]);
   const speechSentRef = useRef(false);
-  const [setupChecking, setSetupChecking] = useState(false);
-  const [setupCheckResult, setSetupCheckResult] = useState(null);
-  const [sensorApiKey, setSensorApiKey] = useState("");
-  const [sensorApiKeyLoading, setSensorApiKeyLoading] = useState(false);
-  const [sensorApiKeyError, setSensorApiKeyError] = useState("");
   const logContainerRef = useRef(null);
   const chatContainerRef = useRef(null);
   const handleSendMessageRef = useRef(null);
@@ -244,6 +240,8 @@ export default function Dashboard() {
   const t = (key) => copy[key] || dashboardCopy.en[key] || key;
   const chatText = chatCopy.en;
   const ct = (key) => chatText[key] || chatCopy.en[key] || key;
+  const { protectedFetch, handleLogout } = useAuth();
+
   const {
     userData,
     setUserData,
@@ -254,10 +252,18 @@ export default function Dashboard() {
     userLoaded,
     sensorSetupForm,
     setSensorSetupForm,
+    setupChecking,
+    setSetupChecking,
+    setupCheckResult,
+    setSetupCheckResult,
+    sensorApiKey,
+    setSensorApiKey,
+    sensorApiKeyLoading,
+    setSensorApiKeyLoading,
+    sensorApiKeyError,
+    setSensorApiKeyError,
     saveUserToMysql,
-    protectedFetch,
-    handleLogout,
-  } = useAuth();
+  } = useProfile(protectedFetch);
 
   const {
     sensorData,
