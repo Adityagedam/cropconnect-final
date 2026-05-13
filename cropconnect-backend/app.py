@@ -1,12 +1,14 @@
 # FastAPI application creation, middleware, and router registration.
 import secrets
 import uuid
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 
 from config import settings
+from db.connections import configure_connections
 from logging_config import request_id_var
 from routers import ai as ai_router
 from routers import auth as auth_router
@@ -17,6 +19,26 @@ from routers import pumps as pumps_router
 from routers import sensors as sensors_router
 from routers import weather as weather_router
 from services.auth_service import AUTH_COOKIE_NAME, CSRF_COOKIE_NAME
+
+if settings.mysql_public_url:
+    _mysql_url = urlparse(settings.mysql_public_url)
+    DB_CONFIG = {
+        "host": _mysql_url.hostname,
+        "port": int(_mysql_url.port or 3306),
+        "user": _mysql_url.username,
+        "password": _mysql_url.password,
+        "database": _mysql_url.path[1:] or "railway",
+    }
+else:
+    DB_CONFIG = {
+        "host": settings.mysql_host,
+        "port": settings.mysql_port,
+        "user": settings.mysql_user,
+        "password": settings.mysql_password,
+        "database": settings.mysql_database,
+    }
+
+configure_connections(DB_CONFIG, settings.mysql_farmers_database, settings.mysql_pool_size)
 
 CSRF_HEADER_NAME = "x-csrf-token"
 FRONTEND_ORIGINS = [
