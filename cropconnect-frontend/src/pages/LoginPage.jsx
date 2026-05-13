@@ -6,7 +6,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { toast } from "sonner";
-import { API, storeCsrfToken, storeSessionUser } from "../lib/api";
+import { API, clearCsrfToken, clearSessionUser, storeCsrfToken, storeSessionUser } from "../lib/api";
 import { useLandingLanguage } from "../components/landing/LandingLanguageContext";
 import LanguageSelect from "../components/LanguageSelect";
 
@@ -28,6 +28,8 @@ export default function LoginPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    clearCsrfToken();
+    clearSessionUser();
     setLoading(true);
 
     try {

@@ -13,7 +13,8 @@ export function useAuth() {
 
   const requireFreshLogin = useCallback(() => {
     clearCsrfToken();
-    toast.error("Please log in again to continue.");
+    clearSessionUser();
+    toast.error("Please log in again to continue.", { id: "auth-expired" });
     navigate("/login");
   }, [navigate]);
 
