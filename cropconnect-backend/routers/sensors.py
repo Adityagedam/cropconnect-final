@@ -231,10 +231,12 @@ def create_esp32_device_key(
     response.headers["Cache-Control"] = "no-store"
     summary = esp32_device_key_summary(device_id)
     if summary.get("has_active_key"):
-        raise HTTPException(
-            status_code=409,
-            detail="An active ESP32 device key already exists. Rotate the key to reveal a new one.",
-        )
+        return {
+            "ok": True,
+            "device_id": device_id,
+            **summary,
+            "message": "An active ESP32 device key already exists. Rotate the key to reveal a new one.",
+        }
     return {
         "ok": True,
         "device_id": device_id,
