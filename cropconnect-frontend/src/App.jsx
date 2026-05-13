@@ -1,18 +1,19 @@
 import "@/App.css";
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { Toaster } from "sonner";
-import LandingPage from "./pages/LandingPage";
-import LoginPage from "./pages/LoginPage";
-import SignInPage from "./pages/SignInPage";
-import ForgotPasswordPage from "./pages/ForgotPasswordPage";
-import ResetPasswordPage from "./pages/ResetPasswordPage";
-import Dashboard from "./pages/Dashboard";
-import CropPlanner from "./pages/CropPlanner";
-import LegalPage from "./pages/LegalPage";
 import { API } from "./lib/api";
 
 import { LandingLanguageProvider } from "./components/landing/LandingLanguageContext";
+
+const LandingPage = lazy(() => import("./pages/LandingPage"));
+const LoginPage = lazy(() => import("./pages/LoginPage"));
+const SignInPage = lazy(() => import("./pages/SignInPage"));
+const ForgotPasswordPage = lazy(() => import("./pages/ForgotPasswordPage"));
+const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const CropPlanner = lazy(() => import("./pages/CropPlanner"));
+const LegalPage = lazy(() => import("./pages/LegalPage"));
 
 export const AUTH_CACHE_KEY = "cc_auth_ok";
 const AUTH_CACHE_TTL = 60_000;
@@ -75,17 +76,19 @@ function App() {
     <div className="App grain" data-auto-translate-root="true">
       <LandingLanguageProvider>
         <BrowserRouter>
-          <Routes>
-            <Route path="/" element={<LandingPage />} />
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/signin" element={<SignInPage />} />
-            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-            <Route path="/reset-password" element={<ResetPasswordPage />} />
-            <Route path="/terms" element={<LegalPage type="terms" />} />
-            <Route path="/privacy" element={<LegalPage type="privacy" />} />
-            <Route path="/dashboard" element={<ProtectedPage><Dashboard /></ProtectedPage>} />
-            <Route path="/crop-planner" element={<ProtectedPage><CropPlanner /></ProtectedPage>} />
-          </Routes>
+          <Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-[#F7F3EA] px-4 text-sm font-semibold text-[#31572C]">Loading...</div>}>
+            <Routes>
+              <Route path="/" element={<LandingPage />} />
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/signin" element={<SignInPage />} />
+              <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+              <Route path="/reset-password" element={<ResetPasswordPage />} />
+              <Route path="/terms" element={<LegalPage type="terms" />} />
+              <Route path="/privacy" element={<LegalPage type="privacy" />} />
+              <Route path="/dashboard" element={<ProtectedPage><Dashboard /></ProtectedPage>} />
+              <Route path="/crop-planner" element={<ProtectedPage><CropPlanner /></ProtectedPage>} />
+            </Routes>
+          </Suspense>
         </BrowserRouter>
       </LandingLanguageProvider>
       <Toaster

@@ -16,7 +16,12 @@ _farmers_db_pools_lock = threading.Lock()
 
 def configure_connections(db_config: dict[str, Any], farmers_database: str, mysql_pool_size: int) -> None:
     global _db_config, _farmers_database, _mysql_pool_size
-    _db_config = dict(db_config)
+    _db_config = {
+        "connection_timeout": 10,
+        "read_timeout": 30,
+        "write_timeout": 30,
+        **dict(db_config),
+    }
     _farmers_database = farmers_database
     _mysql_pool_size = max(1, int(mysql_pool_size))
 
