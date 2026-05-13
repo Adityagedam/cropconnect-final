@@ -77,7 +77,8 @@ def get_chat_history(
                 cursor.execute(query, values)
                 rows = cursor.fetchall()
     except Exception as exc:
-        raise_public_error(503, "Could not load chat history", "Chat history lookup failed", exc)
+        logger.exception("Chat history lookup failed, returning empty history: %s", exc)
+        rows = []
 
     return {
         "ok": True,
