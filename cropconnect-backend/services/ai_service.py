@@ -229,30 +229,34 @@ def classify_farm_scope_with_ai(message: str, language: str = "en") -> bool:
         "medical/legal/financial advice not tied to farming, or messages that merely mention a farm word as a trick. "
         "Return strict JSON only."
     )
-    data = request_json(
-        "https://api.openai.com/v1/chat/completions",
-        {
-            "model": settings.openai_model,
-            "messages": [
-                {"role": "system", "content": prompt},
-                {
-                    "role": "user",
-                    "content": json.dumps(
-                        {"message": message, "selected_language": language},
-                        ensure_ascii=False,
-                    ),
-                },
-            ],
-            "temperature": 0,
-            "max_tokens": 40,
-        },
-        {"Authorization": f"Bearer {settings.openai_api_key}"},
-    )
-    raw = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-    parsed = parse_ai_json(raw)
-    if not isinstance(parsed, dict) or "in_scope" not in parsed:
-        raise ValueError("Scope classifier returned an unexpected response")
-    return bool(parsed.get("in_scope"))
+    try:
+        data = request_json(
+            "https://api.openai.com/v1/chat/completions",
+            {
+                "model": settings.openai_model,
+                "messages": [
+                    {"role": "system", "content": prompt},
+                    {
+                        "role": "user",
+                        "content": json.dumps(
+                            {"message": message, "selected_language": language},
+                            ensure_ascii=False,
+                        ),
+                    },
+                ],
+                "temperature": 0,
+                "max_tokens": 40,
+            },
+            {"Authorization": f"Bearer {settings.openai_api_key}"},
+        )
+        raw = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        parsed = parse_ai_json(raw)
+        if not isinstance(parsed, dict) or "in_scope" not in parsed:
+            raise ValueError("Scope classifier returned an unexpected response")
+        return bool(parsed.get("in_scope"))
+    except Exception as exc:
+        logger.exception("OpenAI scope classifier unavailable, using local classifier: %s", exc)
+        return is_plant_or_soil_question(message)
 
 
 def translate_texts_with_ai(texts: list[str], target_lang: str) -> list[str]:

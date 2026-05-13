@@ -35,6 +35,31 @@ def raise_public_error(status_code: int, detail: str, context: str, exc: Excepti
     raise HTTPException(status_code=status_code, detail=detail) from exc
 
 
+def fallback_farm_reply(message: str, live_sensor_context: dict, profile_location: str) -> str:
+    sensor_data = live_sensor_context.get("sensor_data") or {}
+    soil_moisture = sensor_data.get("soil_moisture")
+    temperature = sensor_data.get("temperature")
+    humidity = sensor_data.get("humidity")
+    sensor_message = live_sensor_context.get("message") or ""
+    location_text = f" for {profile_location}" if profile_location else ""
+    readings = []
+    if soil_moisture is not None:
+        readings.append(f"soil moisture is {soil_moisture}")
+    if temperature is not None:
+        readings.append(f"temperature is {temperature}")
+    if humidity is not None:
+        readings.append(f"humidity is {humidity}")
+    reading_text = ", ".join(readings)
+    context_text = f" Your latest readings show {reading_text}." if reading_text else f" {sensor_message or 'Live sensor readings are not available yet.'}"
+    return (
+        "I can help with this farm question, but the cloud AI model is temporarily unavailable."
+        + context_text
+        + f" For irrigation{location_text}, check the latest soil moisture before switching pumps on, avoid watering during peak afternoon heat, and recheck the field after a short run."
+        + " If the soil is already moist or rain is expected, delay irrigation and keep monitoring the ESP32 readings."
+        + f" Your question was: {message}"
+    )
+
+
 @router.post("/api/utils/translate")
 async def api_translate(payload: TranslateIn, request: Request):
     if not PUBLIC_TRANSLATION_ENABLED:
@@ -65,10 +90,7 @@ def ai_chat(
 ):
     owner_id, owner_email = require_auth_owner(authorization, auth_cookie)
     rate_limit_authenticated_request(owner_id, "ai-chat", limit=20, window_seconds=60)
-    try:
-        related_to_plant_or_soil = classify_farm_scope_with_ai(payload.message, payload.language)
-    except Exception as exc:
-        raise_public_error(502, "AI scope check failed", "AI chat scope classifier failed", exc)
+    related_to_plant_or_soil = classify_farm_scope_with_ai(payload.message, payload.language)
     owner_profile = owner_profile_context(owner_id)
     device_id = str(owner_profile.get("sensorDeviceId") or "").strip()
     live_sensor_context = latest_sensor_context(device_id)
@@ -124,7 +146,19 @@ def ai_chat(
     search_results = google_search(payload.message, profile_location) if related_to_plant_or_soil else []
 
     if not OPENAI_API_KEY:
-        raise HTTPException(status_code=503, detail="OPENAI_API_KEY is required for AI chatbot answers")
+        fallback_reply = fallback_farm_reply(payload.message, live_sensor_context, profile_location)
+        insert_chat_record(owner_id, owner_email, "user", payload.message, related_to_plant_or_soil, live_sensor_data, profile_location)
+        insert_chat_record(owner_id, owner_email, "bot", fallback_reply, related_to_plant_or_soil, live_sensor_data, profile_location)
+        return {
+            "ok": True,
+            "source": "local_fallback",
+            "related_to_plant_or_soil": related_to_plant_or_soil,
+            "reply": fallback_reply,
+            "sensor_source": live_sensor_context.get("source"),
+            "sensor_recorded_at": live_sensor_context.get("recorded_at"),
+            "sensor_message": live_sensor_context.get("message", ""),
+            "used_google_search": bool(search_results),
+        }
 
     messages = [
         {
@@ -192,8 +226,20 @@ def ai_chat(
             {"Authorization": f"Bearer {OPENAI_API_KEY}"},
         )
     except Exception as exc:
+        logger.exception("AI chatbot request failed, using local fallback: %s", exc)
+        fallback_reply = fallback_farm_reply(payload.message, live_sensor_context, profile_location)
         insert_chat_record(owner_id, owner_email, "user", payload.message, related_to_plant_or_soil, live_sensor_data, profile_location)
-        raise_public_error(502, "AI chatbot request failed", "AI chatbot request failed", exc)
+        insert_chat_record(owner_id, owner_email, "bot", fallback_reply, related_to_plant_or_soil, live_sensor_data, profile_location)
+        return {
+            "ok": True,
+            "source": "local_fallback",
+            "related_to_plant_or_soil": related_to_plant_or_soil,
+            "reply": fallback_reply,
+            "sensor_source": live_sensor_context.get("source"),
+            "sensor_recorded_at": live_sensor_context.get("recorded_at"),
+            "sensor_message": live_sensor_context.get("message", ""),
+            "used_google_search": bool(search_results),
+        }
 
     reply = data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
     if not reply:
