@@ -10,6 +10,8 @@ from typing import Any
 
 from cryptography.fernet import Fernet, InvalidToken
 
+from config import settings
+
 ENCRYPTED_PREFIX = "enc:v1:"
 PASSWORD_PREFIX = "pbkdf2_sha256"
 PBKDF2_ITERATIONS = 210_000
@@ -19,11 +21,11 @@ logger = logging.getLogger("cropconnect")
 
 
 def _secret() -> str:
-    return os.getenv("CROP_DATA_SECRET_KEY") or ""
+    return os.getenv("CROP_DATA_SECRET_KEY") or settings.crop_data_secret_key or ""
 
 
 def _auth_secret() -> str:
-    return os.getenv("CROP_AUTH_TOKEN_SECRET") or ""
+    return os.getenv("CROP_AUTH_TOKEN_SECRET") or settings.crop_auth_token_secret or ""
 
 
 def require_data_secret() -> None:

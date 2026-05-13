@@ -79,7 +79,7 @@ VITE_BACKEND_URL=http://localhost:8001
 VITE_PUBLIC_TRANSLATION_ENABLED=false
 ```
 
-For local HTTP development, set `AUTH_COOKIE_SECURE=false`, `AUTH_COOKIE_SAMESITE=lax`, and `FRONTEND_ORIGINS=http://localhost:3000` in the backend environment. Keep `AUTH_COOKIE_SECURE=true`, `AUTH_COOKIE_SAMESITE=none`, and a production-only `FRONTEND_ORIGINS` value on Railway/production HTTPS.
+For local HTTP development, set `AUTH_COOKIE_SECURE=false`, `AUTH_COOKIE_SAMESITE=lax`, and `FRONTEND_ORIGINS=http://localhost:3000,http://localhost:5173` in the backend environment. Keep `AUTH_COOKIE_SECURE=true`, `AUTH_COOKIE_SAMESITE=none`, and a production-only `FRONTEND_ORIGINS` value on Railway/production HTTPS.
 
 ## ESP32 POST Example
 
