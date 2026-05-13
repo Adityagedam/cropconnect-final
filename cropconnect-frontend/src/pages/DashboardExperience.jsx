@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import {
   Leaf,
   LayoutDashboard,
@@ -45,9 +45,14 @@ import SensorPanel from "../components/dashboard/SensorPanel";
 import WeatherPanel from "../components/dashboard/WeatherPanel";
 import CropPlanner from "./CropPlanner";
 import { toast } from "sonner";
-import { API, clearCsrfToken, csrfHeadersAsync } from "../lib/api";
-import { useProfile } from "../hooks/useProfile";
+import { API } from "../lib/api";
+import { useAiChat } from "../hooks/useAiChat";
+import { useAuth } from "../hooks/useAuth";
+import { useMarketData } from "../hooks/useMarketData";
+import { usePumpControl } from "../hooks/usePumpControl";
 import { useSensorData } from "../hooks/useSensorData";
+import { useSpeech } from "../hooks/useSpeech";
+import { useWeatherData } from "../hooks/useWeatherData";
 
 const humanizeApiValue = (value, fallback = "") => {
   if (value == null || value === "") return fallback;
@@ -70,9 +75,6 @@ const humanizeApiValue = (value, fallback = "") => {
 const EMPTY_DISPLAY = "--";
 const isPresent = (value) => value !== null && value !== undefined && value !== "";
 const displayValue = (value, suffix = "") => (isPresent(value) ? `${value}${suffix}` : EMPTY_DISPLAY);
-const jsonHeaders = () => ({
-  "Content-Type": "application/json",
-});
 const numericOrNull = (value) => {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
@@ -215,7 +217,6 @@ const emptyMarketData = {
 };
 
 export default function Dashboard() {
-  const navigate = useNavigate();
   const [language, setLanguage] = useState(
     () => localStorage.getItem("cropconnect-language") || "en"
   );
@@ -223,30 +224,8 @@ export default function Dashboard() {
     () => localStorage.getItem("cropconnect-theme") || "light"
   );
   const [activePage, setActivePage] = useState("dashboard");
-  const [pumps, setPumps] = useState({
-    pump1: { on: false, appliedOn: null, hardwareConfirmed: false, runtime: 0, schedule: {} },
-    pump2: { on: false, appliedOn: null, hardwareConfirmed: false, runtime: 0, schedule: {} },
-  });
   const [apiLogs, setApiLogs] = useState([]);
-  const [weatherData, setWeatherData] = useState(null);
-  const [weatherError, setWeatherError] = useState("");
-  const [marketData, setMarketData] = useState(emptyMarketData);
-  const [marketError, setMarketError] = useState("");
-  const [marketLoading, setMarketLoading] = useState(false);
-  const [marketInsight, setMarketInsight] = useState(null);
-  const [marketInsightError, setMarketInsightError] = useState("");
-  const [marketInsightLoading, setMarketInsightLoading] = useState(false);
-  const [chatMessages, setChatMessages] = useState([]);
-  const [chatInput, setChatInput] = useState("");
-  const [isTyping, setIsTyping] = useState(false);
-  const [showSuggestions, setShowSuggestions] = useState(true);
-  const [isListening, setIsListening] = useState(false);
-  const [speechRecognition, setSpeechRecognition] = useState(null);
   const speechSentRef = useRef(false);
-  const [pumpUpdating, setPumpUpdating] = useState({});
-  const [scheduledTimers, setScheduledTimers] = useState({ pump1: [], pump2: [] });
-  const [showTimerModal, setShowTimerModal] = useState({ show: false, pump: null });
-  const [newTimer, setNewTimer] = useState({ hour: "", minute: "00", period: "AM", duration: "", days: [] });
   const [setupChecking, setSetupChecking] = useState(false);
   const [setupCheckResult, setSetupCheckResult] = useState(null);
   const [sensorApiKey, setSensorApiKey] = useState("");
@@ -255,7 +234,6 @@ export default function Dashboard() {
   const logContainerRef = useRef(null);
   const chatContainerRef = useRef(null);
   const handleSendMessageRef = useRef(null);
-  const pumpsRef = useRef(pumps);
   const activeSensorAlertsRef = useRef([]);
   const alertToastIntervalRef = useRef(null);
   const persistedFarmLoadedRef = useRef(false);
@@ -266,48 +244,6 @@ export default function Dashboard() {
   const t = (key) => copy[key] || dashboardCopy.en[key] || key;
   const chatText = chatCopy.en;
   const ct = (key) => chatText[key] || chatCopy.en[key] || key;
-  const requireFreshLogin = useCallback(() => {
-    clearCsrfToken();
-    toast.error("Please log in again to continue.");
-    navigate("/login");
-  }, [navigate]);
-
-  const protectedFetch = useCallback(async (url, options = {}) => {
-    const method = String(options.method || "GET").toUpperCase();
-    const needsCsrf = !["GET", "HEAD", "OPTIONS"].includes(method);
-    const csrf = needsCsrf ? await csrfHeadersAsync() : {};
-    const requestOptions = {
-      ...options,
-      credentials: "include",
-      headers: {
-        ...(options.headers || {}),
-        ...csrf,
-      },
-    };
-    let response = await fetch(url, requestOptions);
-
-    if (needsCsrf && response.status === 403) {
-      const forbiddenText = await response.clone().text().catch(() => "");
-      if (!/csrf/i.test(forbiddenText)) return response;
-      clearCsrfToken();
-      const retryCsrf = await csrfHeadersAsync({ refresh: true });
-      response = await fetch(url, {
-        ...requestOptions,
-        headers: {
-          ...(options.headers || {}),
-          ...retryCsrf,
-        },
-      });
-    }
-
-    if (response.status === 401) {
-      requireFreshLogin();
-      throw new Error("Login expired");
-    }
-
-    return response;
-  }, [requireFreshLogin]);
-
   const {
     userData,
     setUserData,
@@ -319,7 +255,9 @@ export default function Dashboard() {
     sensorSetupForm,
     setSensorSetupForm,
     saveUserToMysql,
-  } = useProfile(protectedFetch);
+    protectedFetch,
+    handleLogout,
+  } = useAuth();
 
   const {
     sensorData,
@@ -386,16 +324,28 @@ export default function Dashboard() {
     }
   }, [protectedFetch, userData.sensorDeviceId]);
 
-  const ownerPayload = useCallback(() => ({}), []);
+  const {
+    pumps,
+    setPumps,
+    pumpsRef,
+    pumpUpdating,
+    scheduledTimers,
+    setScheduledTimers,
+    showTimerModal,
+    setShowTimerModal,
+    newTimer,
+    setNewTimer,
+    saveTimersToMysql,
+    togglePump,
+  } = usePumpControl({
+    protectedFetch,
+    userLoaded,
+    sensorConnection,
+    sensorDeviceId: userData.sensorDeviceId,
+    pollIntervalMs: SENSOR_POLL_INTERVAL_MS,
+  });
 
-  const saveTimersToMysql = useCallback(async (nextTimers) => {
-    const response = await protectedFetch(`${API}/farm/timers`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...ownerPayload(), timers: nextTimers }),
-    });
-    if (!response.ok) throw new Error("Could not save timers");
-  }, [ownerPayload, protectedFetch]);
+  const ownerPayload = useCallback(() => ({}), []);
 
   const saveDashboardSnapshot = useCallback(async () => {
     if (snapshotSaveInFlightRef.current) return;
@@ -422,112 +372,39 @@ export default function Dashboard() {
     }
   }, [marketData, ownerPayload, protectedFetch, pumps, scheduledTimers, sensorConnection.deviceId, sensorConnection.source, sensorData, telemetryPacket, userData.sensorDeviceId, weatherData]);
 
-  const getUserWeatherLocation = useCallback(() => {
-    const place =
-      userData.locationType === "village"
-        ? userData.village || userData.city
-        : userData.city || userData.village;
-    return [place, userData.district, userData.state].filter(Boolean).join(", ");
-  }, [userData.city, userData.district, userData.locationType, userData.state, userData.village]);
-
   const getUserMarketLocation = useCallback(() => {
     const place =
       userData.locationType === "village"
         ? userData.village || userData.city
-        : userData.city || userData.village;
+      : userData.city || userData.village;
     return [place, userData.district, userData.state].filter(Boolean).join(", ");
   }, [userData.city, userData.district, userData.locationType, userData.state, userData.village]);
 
-  const loadMarketPrices = useCallback(async (isCancelled = () => false) => {
-    if (!userLoaded) return;
-    const locationName = getUserMarketLocation();
-
-    if (!userData.state) {
-      if (!isCancelled()) {
-        setMarketData(emptyMarketData);
-        setMarketError("Please add your state in profile to load local mandi prices.");
-      }
-      return;
-    }
-
-    if (!isCancelled()) {
-      setMarketLoading(true);
-      setMarketError("");
-    }
-
-    try {
-      const response = await protectedFetch(`${API}/market/prices`);
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(marketFriendlyError(payload.detail || `Market prices returned ${response.status}`));
-      }
-
-      if (!isCancelled()) {
-        setMarketData({
-          ...emptyMarketData,
-          ...payload,
-          requestedLocation: payload.requestedLocation || locationName,
-          prices: Array.isArray(payload.prices) ? payload.prices : [],
-          mandis: Array.isArray(payload.mandis) ? payload.mandis : [],
-        });
-        setMarketInsight(null);
-        setMarketInsightError("");
-      }
-    } catch (error) {
-      if (!isCancelled()) {
-        setMarketData({ ...emptyMarketData, requestedLocation: locationName });
-        setMarketError(marketFriendlyError(error.message || "Could not load live mandi prices"));
-        setMarketInsight(null);
-        setMarketInsightError("");
-      }
-    } finally {
-      if (!isCancelled()) setMarketLoading(false);
-    }
-  }, [getUserMarketLocation, protectedFetch, userData.state, userLoaded]);
-
-  const loadMarketInsight = useCallback(async () => {
-    if (!userLoaded) return;
-
-    setMarketInsightLoading(true);
-    setMarketInsightError("");
-    try {
-      const response = await protectedFetch(`${API}/market/insights`, {
-        method: "POST",
-        headers: jsonHeaders(),
-        body: JSON.stringify({
-          language,
-          objective: "Analyze live mandi records for this user's location and give cautious selling guidance.",
-        }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(marketFriendlyError(payload.detail || `AI market insight returned ${response.status}`));
-      }
-      setMarketInsight(payload);
-      if (payload.market_data) {
-        setMarketData({
-          ...emptyMarketData,
-          ...payload.market_data,
-          prices: Array.isArray(payload.market_data.prices) ? payload.market_data.prices : [],
-          mandis: Array.isArray(payload.market_data.mandis) ? payload.market_data.mandis : [],
-        });
-      }
-    } catch (error) {
-      setMarketInsight(null);
-      setMarketInsightError(marketFriendlyError(error.message || "Could not generate AI market insight"));
-    } finally {
-      setMarketInsightLoading(false);
-    }
-  }, [language, protectedFetch, userLoaded]);
+  const { weatherData, setWeatherData, weatherError, getUserWeatherLocation } = useWeatherData(userData);
+  const {
+    marketData,
+    setMarketData,
+    marketError,
+    marketLoading,
+    marketInsight,
+    marketInsightError,
+    marketInsightLoading,
+    loadMarketPrices,
+    loadMarketInsight,
+  } = useMarketData({
+    protectedFetch,
+    language,
+    userLoaded,
+    userState: userData.state,
+    getUserMarketLocation,
+    marketFriendlyError,
+    emptyMarketData,
+  });
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", isDark);
     localStorage.setItem("cropconnect-theme", theme);
   }, [isDark, theme]);
-
-  useEffect(() => {
-    pumpsRef.current = pumps;
-  }, [pumps]);
 
   useEffect(() => {
     activeSensorAlertsRef.current = activeSensorAlerts;
@@ -653,46 +530,6 @@ export default function Dashboard() {
     };
   }, [protectedFetch, userLoaded]);
 
-  // Poll desired/applied pump status so queued commands stop looking like confirmed hardware state.
-  useEffect(() => {
-    if (!userLoaded) return undefined;
-    let cancelled = false;
-
-    const loadPumpStates = async () => {
-      try {
-        const response = await protectedFetch(`${API}/farm/pump-states`);
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok || !Array.isArray(payload.items) || cancelled) return;
-        setPumps((prev) => {
-          const next = { ...prev };
-          payload.items.forEach((item) => {
-            if (!next[item.pump_id]) return;
-            const desiredOn = Boolean(item.desired_on ?? item.on);
-            const appliedOn = item.applied_on === null || item.applied_on === undefined ? null : Boolean(item.applied_on);
-            next[item.pump_id] = {
-              ...next[item.pump_id],
-              on: desiredOn,
-              appliedOn,
-              hardwareConfirmed: Boolean(item.hardware_confirmed),
-              runtime: item.runtime || next[item.pump_id].runtime || 0,
-              schedule: Object.keys(item.schedule || {}).length ? item.schedule : next[item.pump_id].schedule,
-            };
-          });
-          return next;
-        });
-      } catch {
-        // The sensor and auth paths already surface connection/auth problems.
-      }
-    };
-
-    loadPumpStates();
-    const interval = setInterval(loadPumpStates, SENSOR_POLL_INTERVAL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [protectedFetch, userLoaded]);
-
   // Page configurations
   const pageConfig = {
     dashboard: { title: t("dashboard"), subtitle: t("dashboardSubtitle") },
@@ -717,39 +554,6 @@ export default function Dashboard() {
     saveDashboardSnapshot().catch(() => {});
     return () => clearInterval(interval);
   }, [saveDashboardSnapshot, userLoaded]);
-
-  // Load live internet weather data for the user's area.
-  useEffect(() => {
-    let cancelled = false;
-    const locationName = getUserWeatherLocation();
-
-    if (!locationName) {
-      setWeatherData(null);
-      setWeatherError("Please add your city or village and state in your profile.");
-      return undefined;
-    }
-    const loadWeather = async () => {
-      try {
-        setWeatherError("");
-        const response = await fetch(`${API}/weather/forecast?location=${encodeURIComponent(locationName)}`);
-        if (!response.ok) throw new Error(`Weather returned ${response.status}`);
-        const payload = await response.json();
-        if (!cancelled) setWeatherData(payload);
-      } catch (error) {
-        if (!cancelled) {
-          setWeatherData(null);
-          setWeatherError(error.message || "Could not load live weather");
-        }
-      }
-    };
-
-    loadWeather();
-    const interval = setInterval(loadWeather, 15 * 60 * 1000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [getUserWeatherLocation]);
 
   // Load live mandi prices for the user's saved profile location.
   useEffect(() => {
@@ -789,28 +593,6 @@ export default function Dashboard() {
     }
   }, [apiLogs]);
 
-  const updatePumpState = useCallback(async (pumpId, nextOn, pumpOverride = null) => {
-    const pump = pumpOverride || pumpsRef.current[pumpId] || {};
-    const response = await protectedFetch(`${API}/pump/state`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        pump_id: pumpId,
-        on: nextOn,
-        device_id: sensorConnection.deviceId || userData.sensorDeviceId || "",
-        runtime: pump.runtime || 0,
-        schedule: pump.schedule || {},
-      }),
-    });
-    const data = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-      throw new Error(data.detail || "Could not update pump state");
-    }
-
-    return data;
-  }, [protectedFetch, sensorConnection.deviceId, userData.sensorDeviceId]);
-
   // Track pump runtime while pumps are running.
   useEffect(() => {
     const interval = setInterval(() => {
@@ -826,53 +608,6 @@ export default function Dashboard() {
 
     return () => clearInterval(interval);
   }, []);
-
-  const togglePump = async (pumpId) => {
-    const nextOn = !pumpsRef.current[pumpId].on;
-    const pumpName = pumpId === "pump1" ? "Pump 1" : "Pump 2";
-
-    setPumpUpdating((prev) => ({ ...prev, [pumpId]: true }));
-
-    try {
-      const data = await updatePumpState(pumpId, nextOn);
-
-      setPumps((prev) => ({
-        ...prev,
-        [pumpId]: {
-          ...prev[pumpId],
-          on: nextOn,
-          hardwareConfirmed: false,
-          runtime: nextOn ? 0 : prev[pumpId].runtime,
-        },
-      }));
-
-      const stateText = nextOn ? "ON" : "OFF";
-      if (data.sent_to_esp32) {
-        toast.success(`${pumpName} turned ${stateText} through ESP32`);
-      } else {
-        toast.info(data.message || `${pumpName} command queued for SIM800L`);
-      }
-    } catch (error) {
-      toast.error(error.message || "Could not reach pump controller");
-    } finally {
-      setPumpUpdating((prev) => ({ ...prev, [pumpId]: false }));
-    }
-  };
-
-  const handleLogout = async () => {
-    try {
-      await fetch(`${API}/auth/logout`, {
-        method: "POST",
-        credentials: "include",
-        headers: await csrfHeadersAsync(),
-      });
-    } catch {
-      // Local logout still clears client state if the network is unavailable.
-    }
-    clearCsrfToken();
-    toast.success("Logged out successfully");
-    navigate("/login");
-  };
 
   const sensorIngestUrl = `${API.replace(/\/api$/, "")}/api/telemetry/ingest`;
   const sensorDeviceId = sensorSetupForm.deviceId.trim() || userData.sensorDeviceId || "";
@@ -958,153 +693,51 @@ export default function Dashboard() {
     return 'en';
   }, [language]);
 
-  // Get speech recognition language code
-  const getSpeechLangCode = (langCode) => {
-    const langMap = {
-      'en': 'en-US',
-      'hi': 'hi-IN',
-      'mr': 'mr-IN',
-      'te': 'te-IN',
-      'ta': 'ta-IN',
-      'kn': 'kn-IN',
-      'bn': 'bn-IN',
-    };
-    return langMap[langCode] || 'en-US';
-  };
+  const {
+    chatMessages,
+    setChatMessages,
+    chatInput,
+    setChatInput,
+    isTyping,
+    showSuggestions,
+    handleSendMessage,
+    handleSuggestionClick,
+  } = useAiChat({
+    protectedFetch,
+    language,
+    sensorConnection,
+    sensorDeviceId: userData.sensorDeviceId,
+    humanizeApiValue,
+    detectLanguage,
+  });
 
-  // Speech recognition setup
-  useEffect(() => {
-    if (typeof window !== 'undefined' && 'webkitSpeechRecognition' in window) {
-      const recognition = new window.webkitSpeechRecognition();
-      recognition.continuous = false;
-      recognition.interimResults = false;
-      recognition.lang = getSpeechLangCode(language);
+  const onSpeechTranscript = useCallback((transcript, detectedLang) => {
+    if (speechSentRef.current) return;
+    setChatInput(transcript);
 
-      recognition.onstart = () => {
-        setIsListening(true);
-        speechSentRef.current = false;
-        const selectedLangName = languages.find(l => l.code === language)?.name || language;
-        toast.info(`Listening... Speak your question in ${selectedLangName}`);
-      };
-
-      recognition.onresult = (event) => {
-        if (speechSentRef.current) return;
-        const transcript = event.results[0][0].transcript;
-        setChatInput(transcript);
-
-        const detectedLang = detectLanguage(transcript);
-        const detectedLangName = languages.find(l => l.code === detectedLang)?.name || detectedLang;
-        const selectedLangName = languages.find(l => l.code === language)?.name || language;
-        if (detectedLang !== language) {
-          toast.info(`Detected ${detectedLangName}; answering in ${selectedLangName}.`);
-        } else {
-          toast.success(`${detectedLangName} detected! Sending response in ${selectedLangName}...`);
-        }
-
-        speechSentRef.current = true;
-        setTimeout(() => handleSendMessageRef.current?.(transcript, null, detectedLang), 500);
-      };
-
-      recognition.onerror = (event) => {
-        console.error('Speech recognition error:', event.error);
-        if (event.error === 'no-speech') {
-          toast.error("No speech detected. Please try again.");
-        } else if (event.error === 'network') {
-          toast.error("Network error. Please check your connection.");
-        } else {
-          toast.error(`Speech recognition failed: ${event.error}`);
-        }
-        setIsListening(false);
-      };
-
-      recognition.onend = () => {
-        setIsListening(false);
-      };
-
-      setSpeechRecognition(recognition);
+    const detectedLangName = languages.find((item) => item.code === detectedLang)?.name || detectedLang;
+    const selectedLangName = languages.find((item) => item.code === language)?.name || language;
+    if (detectedLang !== language) {
+      toast.info(`Detected ${detectedLangName}; answering in ${selectedLangName}.`);
+    } else {
+      toast.success(`${detectedLangName} detected! Sending response in ${selectedLangName}...`);
     }
-  }, [detectLanguage, language]);
 
-  const startListening = () => {
-    if (speechRecognition && !isListening) {
-      try {
-        speechRecognition.lang = getSpeechLangCode(language);
-        speechRecognition.start();
-      } catch (error) {
-        console.error('Error starting speech recognition:', error);
-        toast.error("Could not start microphone. Please check permissions.");
-      }
-    } else if (!speechRecognition) {
-      toast.error("Speech recognition not supported in your browser. Try Chrome, Edge, or Safari.");
-    }
-  };
+    speechSentRef.current = true;
+    setTimeout(() => handleSendMessageRef.current?.(transcript, null, detectedLang), 500);
+  }, [language, setChatInput]);
 
-  const stopListening = () => {
-    if (speechRecognition && isListening) {
-      speechRecognition.stop();
-    }
-  };
+  const { isListening, startListening: startSpeechListening, stopListening } = useSpeech({
+    language,
+    languages,
+    onTranscript: onSpeechTranscript,
+    detectLanguage,
+  });
 
-  const handleSendMessage = async (messageOverride, responseKeyOverride = null, detectedLanguage = null) => {
-    const messageText = (messageOverride ?? chatInput).trim();
-    if (!messageText) return;
-    const inputLanguage = detectedLanguage || detectLanguage(messageText);
-
-    const userMessage = { id: Date.now(), type: "user", text: messageText };
-    setChatMessages((prev) => [...prev, userMessage]);
-    setChatInput("");
-    setShowSuggestions(false);
-    setIsTyping(true);
-
-    try {
-      const response = await protectedFetch(`${API}/ai/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...ownerPayload(),
-          message: messageText,
-          language,
-          input_language: inputLanguage,
-          device_id: sensorConnection.deviceId || userData.sensorDeviceId || "",
-          history: chatMessages.slice(-4).map((msg) => ({
-            type: String(msg.type || ""),
-            text: humanizeApiValue(msg.text),
-          })),
-        }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(humanizeApiValue(payload.detail, `AI returned ${response.status}`));
-      const responseText = humanizeApiValue(payload.reply, "");
-      if (!responseText) throw new Error("AI returned an empty answer");
-      setChatMessages((prev) => [
-        ...prev,
-        {
-          id: Date.now() + 1,
-          type: "bot",
-          text: responseText,
-          relatedToPlantOrSoil: payload.related_to_plant_or_soil,
-        },
-      ]);
-    } catch (error) {
-      if (error.message === "Login required" || error.message === "Login expired") {
-        return;
-      }
-      setChatMessages((prev) => [
-        ...prev,
-        {
-          id: Date.now() + 1,
-          type: "bot",
-          text: error.message || "AI chatbot is unavailable.",
-        },
-      ]);
-    } finally {
-      setIsTyping(false);
-    }
-  };
-
-  const handleSuggestionClick = (suggestion, suggestionKey) => {
-    handleSendMessage(suggestion, suggestionKey);
-  };
+  const startListening = useCallback(() => {
+    speechSentRef.current = false;
+    startSpeechListening();
+  }, [startSpeechListening]);
 
   const getTimerStartTime = (timerInput) => {
     if (!timerInput.hour || !timerInput.minute || !timerInput.period) return "";

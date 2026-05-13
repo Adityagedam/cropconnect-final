@@ -1,24 +1,17 @@
-# ruff: noqa: F821
-from __future__ import annotations
-
-from typing import get_type_hints
+import urllib.parse
+from datetime import datetime
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
-_core = None
+from http_client import request_json
+from services.rate_limit import rate_limit_public_request
+
+router = APIRouter()
 
 
-def _resolve_route_types(*functions):
-    for func in functions:
-        func.__annotations__ = get_type_hints(func, globalns=globals(), localns=globals())
-
-
-def _bind_core(core):
-    global _core
-    _core = core
-    for name in dir(core):
-        if not name.startswith("__"):
-            globals()[name] = getattr(core, name)
+def raise_public_error(status_code: int, detail: str, _context: str, exc: Exception) -> None:
+    raise HTTPException(status_code=status_code, detail=detail) from exc
 
 
 def weather_code_condition(value: Any) -> dict[str, str]:
@@ -44,6 +37,7 @@ def weather_code_condition(value: Any) -> dict[str, str]:
     return {"condition": "--", "advice": ""}
 
 
+@router.get("/api/weather/forecast")
 def weather_forecast(request: Request, location: str = Query(default="", max_length=160)):
     rate_limit_public_request(request, "weather", limit=60, window_seconds=60)
     if not location:
@@ -152,11 +146,3 @@ def weather_forecast(request: Request, location: str = Query(default="", max_len
             for index, day in enumerate(days)
         ],
     }
-
-
-def create_router(core) -> APIRouter:
-    _bind_core(core)
-    _resolve_route_types(weather_code_condition, weather_forecast)
-    router = APIRouter()
-    router.add_api_route('/api/weather/forecast', weather_forecast, methods=['GET'])
-    return router

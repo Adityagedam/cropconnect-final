@@ -1,26 +1,38 @@
-# ruff: noqa: F821
-from __future__ import annotations
-
-from typing import get_type_hints
+import json
+import re
+import urllib.parse
+from datetime import datetime, timezone
+from decimal import Decimal
+from typing import Any
 
 from fastapi import APIRouter, Cookie, Header, HTTPException, Query
 
+from config import settings
+from http_client import request_json
+from logging_config import configure_logging
+from models import MarketInsightIn
+from services.ai_service import parse_ai_json, require_openai, selected_language_name
+from services.auth_service import owner_profile_context, require_auth_owner
+from services.rate_limit import rate_limit_authenticated_request
+from services.sensor_service import latest_sensor_context
+
 AUTH_COOKIE_NAME = "cropconnect_auth"
+DATA_GOV_MARKET_RESOURCE_URL = settings.data_gov_market_resource_url
+DATA_GOV_API_KEY = settings.data_gov_api_key
+MARKET_PRICE_LIMIT = settings.market_price_limit
+OPENAI_API_KEY = settings.openai_api_key
+OPENAI_MODEL = settings.openai_model
+router = APIRouter()
+logger = configure_logging()
 
-_core = None
+
+def raise_public_error(status_code: int, detail: str, context: str, exc: Exception) -> None:
+    logger.exception("%s: %s", context, exc)
+    raise HTTPException(status_code=status_code, detail=detail) from exc
 
 
-def _resolve_route_types(*functions):
-    for func in functions:
-        func.__annotations__ = get_type_hints(func, globalns=globals(), localns=globals())
-
-
-def _bind_core(core):
-    global _core
-    _core = core
-    for name in dir(core):
-        if not name.startswith("__"):
-            globals()[name] = getattr(core, name)
+def log_backend_error(context: str, exc: Exception) -> None:
+    logger.exception("%s: %s", context, exc)
 
 
 def market_text(value: Any) -> str:
@@ -264,6 +276,7 @@ def normalize_market_insight_payload(parsed: Any) -> dict[str, Any]:
     }
 
 
+@router.get("/api/market/prices")
 def market_prices(
     authorization: str | None = Header(default=None),
     auth_cookie: str | None = Cookie(default=None, alias=AUTH_COOKIE_NAME),
@@ -301,6 +314,7 @@ def market_prices(
     return market_payload_from_records(records, state, requested_location, matched_district, message)
 
 
+@router.post("/api/market/insights")
 def market_insights(
     payload: MarketInsightIn,
     authorization: str | None = Header(default=None),
@@ -372,12 +386,3 @@ def market_insights(
         "market_data": market_context,
         "sensor_context": live_sensor_context,
     }
-
-
-def create_router(core) -> APIRouter:
-    _bind_core(core)
-    _resolve_route_types(market_text, market_number, market_record_value, normalize_market_record, market_record_has_price, market_payload_from_records, data_gov_market_records, user_market_location, live_market_context_for_profile, build_market_insight_messages, normalize_market_insight_payload, market_prices, market_insights)
-    router = APIRouter()
-    router.add_api_route('/api/market/prices', market_prices, methods=['GET'])
-    router.add_api_route('/api/market/insights', market_insights, methods=['POST'])
-    return router

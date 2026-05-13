@@ -73,7 +73,7 @@ from security_crypto import (
     require_data_secret,
     verify_password,
 )
-from services import auth as auth_service
+from services import auth_service
 
 CORE_EXPORTS = (
     mysql,
@@ -987,17 +987,14 @@ root = public_router.root
 
 
 def register_routers() -> None:
-    core = sys.modules[__name__]
-    market_router._bind_core(core)
-    weather_router._bind_core(core)
-    app.include_router(public_router.create_router(core))
+    app.include_router(public_router.router)
     app.include_router(auth_router.router)
-    app.include_router(sensors_router.create_router(core))
-    app.include_router(pumps_router.create_router(core))
-    app.include_router(farm_router.create_router(core))
-    app.include_router(market_router.create_router(core))
-    app.include_router(weather_router.create_router(core))
-    app.include_router(ai_router.create_router(core))
+    app.include_router(sensors_router.router)
+    app.include_router(pumps_router.router)
+    app.include_router(farm_router.router)
+    app.include_router(market_router.router)
+    app.include_router(weather_router.router)
+    app.include_router(ai_router.router)
 
 
 register_routers()

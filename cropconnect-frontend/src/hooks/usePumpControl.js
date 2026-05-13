@@ -118,6 +118,7 @@ export function usePumpControl({ protectedFetch, userLoaded, sensorConnection, s
     setPumps,
     pumpsRef,
     pumpUpdating,
+    setPumpUpdating,
     scheduledTimers,
     setScheduledTimers,
     showTimerModal,

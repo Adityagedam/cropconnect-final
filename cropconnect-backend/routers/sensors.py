@@ -1,31 +1,40 @@
-# ruff: noqa: F821
-from __future__ import annotations
-
-from typing import get_type_hints
+from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import APIRouter, Cookie, Header, HTTPException, Query, Request, Response
 
+from config import settings
+from db.connections import get_connection
+from logging_config import configure_logging
+from models import TelemetryIn
+from services.auth_service import decimal_to_float, owner_profile_context, require_auth_owner, require_sensor_read_access
+from services.esp32_service import (
+    active_esp32_device_key,
+    check_api_key,
+    esp32_device_key_summary,
+    require_esp32_get_write_enabled,
+    rotate_esp32_device_key,
+)
+from services.rate_limit import rate_limit_public_request
+
 AUTH_COOKIE_NAME = "cropconnect_auth"
-
-_core = None
-
-
-def _resolve_route_types(*functions):
-    for func in functions:
-        func.__annotations__ = get_type_hints(func, globalns=globals(), localns=globals())
+router = APIRouter()
+logger = configure_logging()
 
 
-def _bind_core(core):
-    global _core
-    _core = core
-    for name in dir(core):
-        if not name.startswith("__"):
-            globals()[name] = getattr(core, name)
+def log_backend_error(context: str, exc: Exception) -> None:
+    logger.exception("%s: %s", context, exc)
 
 
+def raise_public_error(status_code: int, detail: str, context: str, exc: Exception) -> None:
+    log_backend_error(context, exc)
+    raise HTTPException(status_code=status_code, detail=detail) from exc
+
+
+@router.get("/api/public/sensors/latest")
 def public_latest_landing_sensor(request: Request):
     rate_limit_public_request(request, "public-sensors-latest", limit=60, window_seconds=60)
-    device_id = PUBLIC_LANDING_SENSOR_DEVICE_ID
+    device_id = settings.public_landing_sensor_device_id
     if not device_id:
         return {
             "device_id": "",
@@ -50,6 +59,7 @@ def public_latest_landing_sensor(request: Request):
     }
 
 
+@router.post("/api/telemetry/ingest")
 def ingest_telemetry(
     payload: TelemetryIn,
     x_api_key: str | None = Header(default=None),
@@ -80,6 +90,7 @@ def ingest_telemetry_from_query(request: Request, x_api_key: str | None, api_key
     }
 
 
+@router.get("/api/telemetry/ingest")
 def ingest_telemetry_get(
     request: Request,
     x_api_key: str | None = Header(default=None),
@@ -89,6 +100,7 @@ def ingest_telemetry_get(
     return ingest_telemetry_from_query(request, x_api_key, api_key)
 
 
+@router.post("/data")
 async def receive(
     request: Request,
     x_api_key: str | None = Header(default=None),
@@ -108,6 +120,7 @@ async def receive(
     return {"status": "ok"}
 
 
+@router.get("/data")
 def receive_get(
     request: Request,
     x_api_key: str | None = Header(default=None),
@@ -117,6 +130,7 @@ def receive_get(
     return ingest_telemetry_from_query(request, x_api_key, api_key)
 
 
+@router.get("/api/sensors/latest")
 def latest_sensors(
     device_id: str = Query(default="", max_length=80),
     authorization: str | None = Header(default=None),
@@ -175,6 +189,7 @@ def latest_sensors(
     }
 
 
+@router.get("/api/esp32/device-key")
 def get_esp32_device_key(
     response: Response,
     authorization: str | None = Header(default=None),
@@ -194,6 +209,7 @@ def get_esp32_device_key(
     }
 
 
+@router.post("/api/esp32/device-key")
 def create_esp32_device_key(
     response: Response,
     authorization: str | None = Header(default=None),
@@ -219,6 +235,7 @@ def create_esp32_device_key(
     }
 
 
+@router.post("/api/esp32/device-key/rotate")
 def rotate_esp32_device_key_endpoint(
     response: Response,
     authorization: str | None = Header(default=None),
@@ -238,6 +255,7 @@ def rotate_esp32_device_key_endpoint(
     }
 
 
+@router.get("/api/sensors/history")
 def sensor_history(
     device_id: str = Query(default="", max_length=80),
     limit: int = Query(default=50, ge=1, le=500),
@@ -442,20 +460,3 @@ def esp32_payload_to_telemetry(data: dict[str, Any]) -> TelemetryIn:
         phosphorus=first_present(data, "phosphorus", "p"),
         potassium=first_present(data, "potassium", "k"),
     )
-
-
-def create_router(core) -> APIRouter:
-    _bind_core(core)
-    _resolve_route_types(public_latest_landing_sensor, ingest_telemetry, ingest_telemetry_from_query, ingest_telemetry_get, receive, receive_get, latest_sensors, get_esp32_device_key, create_esp32_device_key, rotate_esp32_device_key_endpoint, sensor_history)
-    router = APIRouter()
-    router.add_api_route('/api/public/sensors/latest', public_latest_landing_sensor, methods=['GET'])
-    router.add_api_route('/api/telemetry/ingest', ingest_telemetry, methods=['POST'])
-    router.add_api_route('/api/telemetry/ingest', ingest_telemetry_get, methods=['GET'])
-    router.add_api_route('/data', receive, methods=['POST'])
-    router.add_api_route('/data', receive_get, methods=['GET'])
-    router.add_api_route('/api/sensors/latest', latest_sensors, methods=['GET'])
-    router.add_api_route('/api/sensors/history', sensor_history, methods=['GET'])
-    router.add_api_route('/api/esp32/device-key', get_esp32_device_key, methods=['GET'])
-    router.add_api_route('/api/esp32/device-key', create_esp32_device_key, methods=['POST'])
-    router.add_api_route('/api/esp32/device-key/rotate', rotate_esp32_device_key_endpoint, methods=['POST'])
-    return router

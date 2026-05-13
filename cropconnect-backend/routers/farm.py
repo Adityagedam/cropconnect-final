@@ -1,28 +1,40 @@
-# ruff: noqa: F821
-from __future__ import annotations
+import json
+from typing import Any
 
-from typing import get_type_hints
+from fastapi import APIRouter, Cookie, Header, HTTPException, Query
 
-from fastapi import APIRouter, Cookie, Header, Query
+from db.connections import get_connection
+from logging_config import configure_logging
+from models import DashboardSnapshotIn
+from services.auth_service import decimal_to_float, owner_profile_context, require_auth_owner
+from services.sensor_service import latest_sensor_context
 
 AUTH_COOKIE_NAME = "cropconnect_auth"
-
-_core = None
-
-
-def _resolve_route_types(*functions):
-    for func in functions:
-        func.__annotations__ = get_type_hints(func, globalns=globals(), localns=globals())
+router = APIRouter()
+logger = configure_logging()
 
 
-def _bind_core(core):
-    global _core
-    _core = core
-    for name in dir(core):
-        if not name.startswith("__"):
-            globals()[name] = getattr(core, name)
+def raise_public_error(status_code: int, detail: str, context: str, exc: Exception) -> None:
+    logger.exception("%s: %s", context, exc)
+    raise HTTPException(status_code=status_code, detail=detail) from exc
 
 
+def json_text(value: Any) -> str:
+    return json.dumps(value if value is not None else {}, ensure_ascii=False)
+
+
+def parse_json_column(value: Any, fallback: Any) -> Any:
+    if value in (None, ""):
+        return fallback
+    if isinstance(value, (dict, list)):
+        return value
+    try:
+        return json.loads(value)
+    except Exception:
+        return fallback
+
+
+@router.get("/api/farm/chat-history")
 def get_chat_history(
     user_id: int | None = Query(default=None, ge=1),
     email: str | None = Query(default=None, max_length=255),
@@ -81,6 +93,7 @@ def get_chat_history(
     }
 
 
+@router.post("/api/farm/snapshot")
 def save_dashboard_snapshot(
     payload: DashboardSnapshotIn,
     authorization: str | None = Header(default=None),
@@ -123,6 +136,7 @@ def save_dashboard_snapshot(
     return {"ok": True}
 
 
+@router.get("/api/farm/snapshot/latest")
 def get_latest_dashboard_snapshot(
     user_id: int | None = Query(default=None, ge=1),
     email: str | None = Query(default=None, max_length=255),
@@ -183,13 +197,3 @@ def get_latest_dashboard_snapshot(
             "created_at": decimal_to_float(row.get("created_at")),
         },
     }
-
-
-def create_router(core) -> APIRouter:
-    _bind_core(core)
-    _resolve_route_types(get_chat_history, save_dashboard_snapshot, get_latest_dashboard_snapshot)
-    router = APIRouter()
-    router.add_api_route('/api/farm/chat-history', get_chat_history, methods=['GET'])
-    router.add_api_route('/api/farm/snapshot', save_dashboard_snapshot, methods=['POST'])
-    router.add_api_route('/api/farm/snapshot/latest', get_latest_dashboard_snapshot, methods=['GET'])
-    return router

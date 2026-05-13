@@ -1,29 +1,45 @@
-# ruff: noqa: F821
-from __future__ import annotations
-
-from typing import get_type_hints
+import json
+from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from fastapi import APIRouter, Cookie, Header, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
 
+from config import settings
+from db.connections import get_connection
+from logging_config import configure_logging
+from models import PumpStateSaveIn, PumpTimersSaveIn, RelayStatusIn
+from pump_control import PumpStateIn, relay_command_text
+from services.auth_service import decimal_to_float, owner_profile_context, require_auth_owner
+from services.esp32_service import check_api_key, require_esp32_get_write_enabled
+
 AUTH_COOKIE_NAME = "cropconnect_auth"
-
-_core = None
-
-
-def _resolve_route_types(*functions):
-    for func in functions:
-        func.__annotations__ = get_type_hints(func, globalns=globals(), localns=globals())
+FARM_TIMER_TIMEZONE = timezone(timedelta(minutes=settings.farm_timer_utc_offset_minutes))
+router = APIRouter()
+logger = configure_logging()
 
 
-def _bind_core(core):
-    global _core
-    _core = core
-    for name in dir(core):
-        if not name.startswith("__"):
-            globals()[name] = getattr(core, name)
+def raise_public_error(status_code: int, detail: str, context: str, exc: Exception) -> None:
+    logger.exception("%s: %s", context, exc)
+    raise HTTPException(status_code=status_code, detail=detail) from exc
 
 
+def json_text(value: Any) -> str:
+    return json.dumps(value if value is not None else {}, ensure_ascii=False)
+
+
+def parse_json_column(value: Any, fallback: Any) -> Any:
+    if value in (None, ""):
+        return fallback
+    if isinstance(value, (dict, list)):
+        return value
+    try:
+        return json.loads(value)
+    except Exception:
+        return fallback
+
+
+@router.get("/api/esp32/relay-command", response_class=PlainTextResponse)
 def esp32_relay_command(
     x_api_key: str | None = Header(default=None),
     api_key: str | None = Query(default=None, max_length=120),
@@ -36,6 +52,7 @@ def esp32_relay_command(
     return relay_command_text(states)
 
 
+@router.get("/esp32/relay-command", response_class=PlainTextResponse)
 def esp32_relay_command_short(
     x_api_key: str | None = Header(default=None),
     api_key: str | None = Query(default=None, max_length=120),
@@ -63,6 +80,7 @@ def parse_relay_states(values: dict[str, Any]) -> dict[int, bool]:
     return states
 
 
+@router.post("/api/esp32/relay-status")
 def esp32_relay_status(
     payload: RelayStatusIn,
     x_api_key: str | None = Header(default=None),
@@ -80,6 +98,7 @@ def esp32_relay_status(
     }
 
 
+@router.get("/api/esp32/relay-status/update")
 def esp32_relay_status_update(
     request: Request,
     x_api_key: str | None = Header(default=None),
@@ -96,6 +115,7 @@ def esp32_relay_status_update(
     return {"ok": True, "status": relay_status_payload_from_db(device_id, desired_states)}
 
 
+@router.get("/api/esp32/relay-status")
 def get_esp32_relay_status(
     x_api_key: str | None = Header(default=None),
     api_key: str | None = Query(default=None, max_length=120),
@@ -108,6 +128,7 @@ def get_esp32_relay_status(
     return {"ok": True, "status": relay_status_payload_from_db(device_id, desired_states)}
 
 
+@router.post("/api/pump/state")
 def set_pump_state(
     payload: PumpStateIn,
     authorization: str | None = Header(default=None),
@@ -164,6 +185,7 @@ def set_pump_state(
     }
 
 
+@router.post("/api/farm/pump-state")
 def save_pump_state(
     payload: PumpStateSaveIn,
     authorization: str | None = Header(default=None),
@@ -207,6 +229,7 @@ def save_pump_state(
     return {"ok": True, "device_id": device_id}
 
 
+@router.get("/api/farm/pump-states")
 def get_pump_states(
     user_id: int | None = Query(default=None, ge=1),
     email: str | None = Query(default=None, max_length=255),
@@ -320,6 +343,7 @@ def get_pump_states(
     }
 
 
+@router.post("/api/farm/timers")
 def save_pump_timers(
     payload: PumpTimersSaveIn,
     authorization: str | None = Header(default=None),
@@ -387,6 +411,7 @@ def save_pump_timers(
     return {"ok": True}
 
 
+@router.get("/api/farm/timers")
 def get_pump_timers(
     user_id: int | None = Query(default=None, ge=1),
     email: str | None = Query(default=None, max_length=255),
@@ -644,20 +669,3 @@ def relay_status_payload_from_db(device_id: str, desired_states: dict[int, bool]
         },
         "updated_at": applied_status.get("updated_at"),
     }
-
-
-def create_router(core) -> APIRouter:
-    _bind_core(core)
-    _resolve_route_types(esp32_relay_command, esp32_relay_command_short, parse_relay_states, esp32_relay_status, esp32_relay_status_update, get_esp32_relay_status, set_pump_state, save_pump_state, get_pump_states, save_pump_timers, get_pump_timers)
-    router = APIRouter()
-    router.add_api_route('/api/esp32/relay-command', esp32_relay_command, methods=['GET'], response_class=PlainTextResponse)
-    router.add_api_route('/esp32/relay-command', esp32_relay_command_short, methods=['GET'], response_class=PlainTextResponse)
-    router.add_api_route('/api/esp32/relay-status', esp32_relay_status, methods=['POST'])
-    router.add_api_route('/api/esp32/relay-status/update', esp32_relay_status_update, methods=['GET'])
-    router.add_api_route('/api/esp32/relay-status', get_esp32_relay_status, methods=['GET'])
-    router.add_api_route('/api/pump/state', set_pump_state, methods=['POST'])
-    router.add_api_route('/api/farm/pump-state', save_pump_state, methods=['POST'])
-    router.add_api_route('/api/farm/pump-states', get_pump_states, methods=['GET'])
-    router.add_api_route('/api/farm/timers', save_pump_timers, methods=['POST'])
-    router.add_api_route('/api/farm/timers', get_pump_timers, methods=['GET'])
-    return router

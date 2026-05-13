@@ -1,28 +1,41 @@
-# ruff: noqa: F821
-from __future__ import annotations
-
-from typing import get_type_hints
+import json
 
 from fastapi import APIRouter, Cookie, Header, HTTPException, Request
 
+from config import settings
+from crop_ai_agent import build_crop_recommendation_messages, has_core_sensor_context, missing_crop_readings
+from http_client import request_json
+from logging_config import configure_logging
+from models import AIOrchestrateIn, ChatIn, CropRecommendIn, TranslateIn
+from services.ai_service import (
+    LANGUAGE_NAMES,
+    classify_farm_scope_with_ai,
+    google_search,
+    is_market_question,
+    parse_ai_json,
+    require_openai,
+    selected_language,
+    translate_texts_with_ai,
+)
+from services.auth_service import insert_chat_record, owner_profile_context, require_auth_owner
+from services.market_service import live_market_context_for_profile
+from services.rate_limit import rate_limit_authenticated_request, rate_limit_public_request
+from services.sensor_service import latest_sensor_context
+
 AUTH_COOKIE_NAME = "cropconnect_auth"
-
-_core = None
-
-
-def _resolve_route_types(*functions):
-    for func in functions:
-        func.__annotations__ = get_type_hints(func, globalns=globals(), localns=globals())
+PUBLIC_TRANSLATION_ENABLED = settings.public_translation_enabled
+OPENAI_API_KEY = settings.openai_api_key
+OPENAI_MODEL = settings.openai_model
+router = APIRouter()
+logger = configure_logging()
 
 
-def _bind_core(core):
-    global _core
-    _core = core
-    for name in dir(core):
-        if not name.startswith("__"):
-            globals()[name] = getattr(core, name)
+def raise_public_error(status_code: int, detail: str, context: str, exc: Exception) -> None:
+    logger.exception("%s: %s", context, exc)
+    raise HTTPException(status_code=status_code, detail=detail) from exc
 
 
+@router.post("/api/utils/translate")
 async def api_translate(payload: TranslateIn, request: Request):
     if not PUBLIC_TRANSLATION_ENABLED:
         raise HTTPException(status_code=503, detail="Public translation endpoint is disabled")
@@ -43,6 +56,7 @@ async def api_translate(payload: TranslateIn, request: Request):
     return response
 
 
+@router.post("/api/ai/chat")
 def ai_chat(
     payload: ChatIn,
     request: Request,
@@ -200,6 +214,7 @@ def ai_chat(
     }
 
 
+@router.post("/api/crops/recommend")
 def crop_recommend(
     payload: CropRecommendIn,
     request: Request,
@@ -293,6 +308,7 @@ def crop_recommend(
     }
 
 
+@router.post("/api/ai/orchestrate")
 def ai_orchestrate(
     payload: AIOrchestrateIn,
     request: Request,
@@ -367,14 +383,3 @@ def ai_orchestrate(
         "model": OPENAI_MODEL,
         "plan": parsed,
     }
-
-
-def create_router(core) -> APIRouter:
-    _bind_core(core)
-    _resolve_route_types(api_translate, ai_chat, crop_recommend, ai_orchestrate)
-    router = APIRouter()
-    router.add_api_route('/api/utils/translate', api_translate, methods=['POST'])
-    router.add_api_route('/api/ai/chat', ai_chat, methods=['POST'])
-    router.add_api_route('/api/crops/recommend', crop_recommend, methods=['POST'])
-    router.add_api_route('/api/ai/orchestrate', ai_orchestrate, methods=['POST'])
-    return router
