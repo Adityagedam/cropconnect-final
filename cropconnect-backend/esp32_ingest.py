@@ -5,6 +5,7 @@ import hmac
 import re
 import secrets
 import smtplib
+import sys
 import time
 import threading
 import urllib.parse
@@ -39,6 +40,14 @@ from pump_control import (
     relay_command_text,
     update_relay_applied_state,
 )
+from routers import ai as ai_router
+from routers import auth as auth_router
+from routers import farm as farm_router
+from routers import market as market_router
+from routers import public as public_router
+from routers import pumps as pumps_router
+from routers import sensors as sensors_router
+from routers import weather as weather_router
 from security_crypto import (
     decrypt_text,
     encrypt_text,
@@ -1659,7 +1668,6 @@ def latest_sensor_context(device_id: str | None) -> dict[str, Any]:
     }
 
 
-@app.get("/api/public/sensors/latest")
 def public_latest_landing_sensor(request: Request):
     rate_limit_public_request(request, "public-sensors-latest", limit=60, window_seconds=60)
     device_id = PUBLIC_LANDING_SENSOR_DEVICE_ID
@@ -1958,7 +1966,6 @@ def relay_status_payload_from_db(device_id: str, desired_states: dict[int, bool]
     }
 
 
-@app.get("/api/health")
 def health():
     try:
       with get_connection() as conn:
@@ -1970,7 +1977,6 @@ def health():
       raise_public_error(503, "Database not connected", "Health check failed", exc)
 
 
-@app.get("/")
 def root():
     return {
         "service": "CropConnect ESP32 Ingestion API",
@@ -1981,7 +1987,6 @@ def root():
     }
 
 
-@app.get("/api/esp32/relay-command", response_class=PlainTextResponse)
 def esp32_relay_command(
     x_api_key: str | None = Header(default=None),
     api_key: str | None = Query(default=None, max_length=120),
@@ -1994,7 +1999,6 @@ def esp32_relay_command(
     return relay_command_text(states)
 
 
-@app.get("/esp32/relay-command", response_class=PlainTextResponse)
 def esp32_relay_command_short(
     x_api_key: str | None = Header(default=None),
     api_key: str | None = Query(default=None, max_length=120),
@@ -2022,7 +2026,6 @@ def parse_relay_states(values: dict[str, Any]) -> dict[int, bool]:
     return states
 
 
-@app.post("/api/esp32/relay-status")
 def esp32_relay_status(
     payload: RelayStatusIn,
     x_api_key: str | None = Header(default=None),
@@ -2041,7 +2044,6 @@ def esp32_relay_status(
     }
 
 
-@app.get("/api/esp32/relay-status/update")
 def esp32_relay_status_update(
     request: Request,
     x_api_key: str | None = Header(default=None),
@@ -2059,7 +2061,6 @@ def esp32_relay_status_update(
     return {"ok": True, "status": relay_status_payload_from_db(device_id, desired_states)}
 
 
-@app.get("/api/esp32/relay-status")
 def get_esp32_relay_status(
     x_api_key: str | None = Header(default=None),
     api_key: str | None = Query(default=None, max_length=120),
@@ -2072,7 +2073,6 @@ def get_esp32_relay_status(
     return {"ok": True, "status": relay_status_payload_from_db(device_id, desired_states)}
 
 
-@app.post("/api/telemetry/ingest")
 def ingest_telemetry(
     payload: TelemetryIn,
     x_api_key: str | None = Header(default=None),
@@ -2103,7 +2103,6 @@ def ingest_telemetry_from_query(request: Request, x_api_key: str | None, api_key
     }
 
 
-@app.get("/api/telemetry/ingest")
 def ingest_telemetry_get(
     request: Request,
     x_api_key: str | None = Header(default=None),
@@ -2113,7 +2112,6 @@ def ingest_telemetry_get(
     return ingest_telemetry_from_query(request, x_api_key, api_key)
 
 
-@app.post("/data")
 async def receive(
     request: Request,
     x_api_key: str | None = Header(default=None),
@@ -2133,7 +2131,6 @@ async def receive(
     return {"status": "ok"}
 
 
-@app.get("/data")
 def receive_get(
     request: Request,
     x_api_key: str | None = Header(default=None),
@@ -2143,7 +2140,6 @@ def receive_get(
     return ingest_telemetry_from_query(request, x_api_key, api_key)
 
 
-@app.get("/api/sensors/latest")
 def latest_sensors(
     device_id: str = Query(default="", max_length=80),
     authorization: str | None = Header(default=None),
@@ -2202,7 +2198,6 @@ def latest_sensors(
     }
 
 
-@app.get("/api/esp32/device-key")
 def get_esp32_device_key(
     response: Response,
     authorization: str | None = Header(default=None),
@@ -2222,7 +2217,6 @@ def get_esp32_device_key(
     }
 
 
-@app.post("/api/esp32/device-key")
 def create_esp32_device_key(
     response: Response,
     authorization: str | None = Header(default=None),
@@ -2248,7 +2242,6 @@ def create_esp32_device_key(
     }
 
 
-@app.post("/api/esp32/device-key/rotate")
 def rotate_esp32_device_key_endpoint(
     response: Response,
     authorization: str | None = Header(default=None),
@@ -2268,7 +2261,6 @@ def rotate_esp32_device_key_endpoint(
     }
 
 
-@app.get("/api/sensors/history")
 def sensor_history(
     device_id: str = Query(default="", max_length=80),
     limit: int = Query(default=50, ge=1, le=500),
@@ -2316,7 +2308,6 @@ def sensor_history(
     }
 
 
-@app.post("/api/auth/signup")
 def auth_signup(payload: AuthSignupIn, request: Request, response: Response):
     email = payload.email.strip().lower()
     email_bucket = hashlib.sha256(email.encode("utf-8")).hexdigest()[:16]
@@ -2393,7 +2384,6 @@ def auth_signup(payload: AuthSignupIn, request: Request, response: Response):
     }
 
 
-@app.post("/api/auth/login")
 def auth_login(payload: AuthLoginIn, request: Request, response: Response):
     email = payload.email.strip().lower()
     email_bucket = hashlib.sha256(email.encode("utf-8")).hexdigest()[:16]
@@ -2429,13 +2419,11 @@ def auth_login(payload: AuthLoginIn, request: Request, response: Response):
     }
 
 
-@app.post("/api/auth/logout")
 def auth_logout(response: Response):
     clear_auth_cookie(response)
     return {"ok": True}
 
 
-@app.get("/api/auth/csrf")
 def auth_csrf(
     response: Response,
     auth_cookie: str | None = Cookie(default=None, alias=AUTH_COOKIE_NAME),
@@ -2446,7 +2434,6 @@ def auth_csrf(
     return {"ok": True, "csrfToken": csrf_token}
 
 
-@app.get("/api/auth/profile")
 def auth_profile(
     authorization: str | None = Header(default=None),
     auth_cookie: str | None = Cookie(default=None, alias=AUTH_COOKIE_NAME),
@@ -2458,7 +2445,6 @@ def auth_profile(
     return {"ok": True, "user": user}
 
 
-@app.post("/api/auth/password-reset-request")
 def auth_password_reset_request(payload: AuthPasswordResetRequestIn, request: Request):
     email = payload.email.strip().lower()
     email_bucket = hashlib.sha256(email.encode("utf-8")).hexdigest()[:16]
@@ -2507,7 +2493,6 @@ def auth_password_reset_request(payload: AuthPasswordResetRequestIn, request: Re
     }
 
 
-@app.post("/api/auth/password-reset-confirm")
 def auth_password_reset_confirm(payload: AuthPasswordResetConfirmIn, request: Request):
     email = payload.email.strip().lower()
     email_bucket = hashlib.sha256(email.encode("utf-8")).hexdigest()[:16]
@@ -2554,7 +2539,6 @@ def auth_password_reset_confirm(payload: AuthPasswordResetConfirmIn, request: Re
     return {"ok": True, "message": "Password has been reset"}
 
 
-@app.post("/api/auth/profile")
 def auth_profile_update(
     payload: AuthProfileUpdateIn,
     authorization: str | None = Header(default=None),
@@ -2634,7 +2618,6 @@ def auth_profile_update(
     return {"ok": True, "user": user_row_to_payload(row)}
 
 
-@app.post("/api/pump/state")
 def set_pump_state(
     payload: PumpStateIn,
     authorization: str | None = Header(default=None),
@@ -2691,7 +2674,6 @@ def set_pump_state(
     }
 
 
-@app.post("/api/farm/pump-state")
 def save_pump_state(
     payload: PumpStateSaveIn,
     authorization: str | None = Header(default=None),
@@ -2735,7 +2717,6 @@ def save_pump_state(
     return {"ok": True, "device_id": device_id}
 
 
-@app.get("/api/farm/pump-states")
 def get_pump_states(
     user_id: int | None = Query(default=None, ge=1),
     email: str | None = Query(default=None, max_length=255),
@@ -2849,7 +2830,6 @@ def get_pump_states(
     }
 
 
-@app.post("/api/farm/timers")
 def save_pump_timers(
     payload: PumpTimersSaveIn,
     authorization: str | None = Header(default=None),
@@ -2917,7 +2897,6 @@ def save_pump_timers(
     return {"ok": True}
 
 
-@app.get("/api/farm/timers")
 def get_pump_timers(
     user_id: int | None = Query(default=None, ge=1),
     email: str | None = Query(default=None, max_length=255),
@@ -2976,7 +2955,6 @@ def get_pump_timers(
     return {"ok": True, "timers": timers}
 
 
-@app.get("/api/farm/chat-history")
 def get_chat_history(
     user_id: int | None = Query(default=None, ge=1),
     email: str | None = Query(default=None, max_length=255),
@@ -3035,7 +3013,6 @@ def get_chat_history(
     }
 
 
-@app.post("/api/farm/snapshot")
 def save_dashboard_snapshot(
     payload: DashboardSnapshotIn,
     authorization: str | None = Header(default=None),
@@ -3078,7 +3055,6 @@ def save_dashboard_snapshot(
     return {"ok": True}
 
 
-@app.get("/api/farm/snapshot/latest")
 def get_latest_dashboard_snapshot(
     user_id: int | None = Query(default=None, ge=1),
     email: str | None = Query(default=None, max_length=255),
@@ -3141,7 +3117,6 @@ def get_latest_dashboard_snapshot(
     }
 
 
-@app.post("/api/utils/translate")
 async def api_translate(payload: TranslateIn, request: Request):
     if not PUBLIC_TRANSLATION_ENABLED:
         raise HTTPException(status_code=503, detail="Public translation endpoint is disabled")
@@ -3162,7 +3137,6 @@ async def api_translate(payload: TranslateIn, request: Request):
     return response
 
 
-@app.post("/api/enquiries")
 def enquiries(payload: EnquiryIn, request: Request):
     rate_limit_public_request(request, "enquiries", limit=5, window_seconds=300)
     if not smtp_configured():
@@ -3179,7 +3153,6 @@ def enquiries(payload: EnquiryIn, request: Request):
     }
 
 
-@app.post("/api/ai/chat")
 def ai_chat(
     payload: ChatIn,
     request: Request,
@@ -3337,7 +3310,6 @@ def ai_chat(
     }
 
 
-@app.post("/api/crops/recommend")
 def crop_recommend(
     payload: CropRecommendIn,
     request: Request,
@@ -3431,7 +3403,6 @@ def crop_recommend(
     }
 
 
-@app.post("/api/ai/orchestrate")
 def ai_orchestrate(
     payload: AIOrchestrateIn,
     request: Request,
@@ -3772,7 +3743,6 @@ def normalize_market_insight_payload(parsed: Any) -> dict[str, Any]:
     }
 
 
-@app.get("/api/market/prices")
 def market_prices(
     authorization: str | None = Header(default=None),
     auth_cookie: str | None = Cookie(default=None, alias=AUTH_COOKIE_NAME),
@@ -3810,7 +3780,6 @@ def market_prices(
     return market_payload_from_records(records, state, requested_location, matched_district, message)
 
 
-@app.post("/api/market/insights")
 def market_insights(
     payload: MarketInsightIn,
     authorization: str | None = Header(default=None),
@@ -3884,7 +3853,6 @@ def market_insights(
     }
 
 
-@app.get("/api/weather/forecast")
 def weather_forecast(request: Request, location: str = Query(default="", max_length=160)):
     rate_limit_public_request(request, "weather", limit=60, window_seconds=60)
     if not location:
@@ -3994,6 +3962,21 @@ def weather_forecast(request: Request, location: str = Query(default="", max_len
         ],
     }
 
+
+
+def register_routers() -> None:
+    core = sys.modules[__name__]
+    app.include_router(public_router.create_router(core))
+    app.include_router(auth_router.create_router(core))
+    app.include_router(sensors_router.create_router(core))
+    app.include_router(pumps_router.create_router(core))
+    app.include_router(farm_router.create_router(core))
+    app.include_router(ai_router.create_router(core))
+    app.include_router(market_router.create_router(core))
+    app.include_router(weather_router.create_router(core))
+
+
+register_routers()
 
 
 if __name__ == "__main__":
