@@ -1,10 +1,6 @@
-from datetime import datetime, timezone
 from typing import Any
 
 from pydantic import BaseModel, Field
-
-RELAY_APPLIED_STATE: dict[int, bool] = {index: False for index in range(1, 9)}
-RELAY_STATUS_UPDATED_AT = ""
 
 
 class PumpStateIn(BaseModel):
@@ -39,11 +35,12 @@ def relay_command_text(states: dict[int, bool]) -> str:
 
 
 def update_relay_applied_state(states: dict[int, bool]) -> None:
-    global RELAY_STATUS_UPDATED_AT
-    for relay_number, on in states.items():
-        if 1 <= relay_number <= 8:
-            RELAY_APPLIED_STATE[relay_number] = on
-    RELAY_STATUS_UPDATED_AT = datetime.now(timezone.utc).isoformat()
+    """Compatibility hook.
+
+    Applied relay status is stored in MySQL relay_statuses by the API layer.
+    This function intentionally does not keep process-local state.
+    """
+    return None
 
 
 def relay_status_payload(desired_states: dict[int, bool] | None = None) -> dict[str, Any]:
@@ -54,8 +51,8 @@ def relay_status_payload(desired_states: dict[int, bool] | None = None) -> dict[
             for relay_number in range(1, 9)
         },
         "applied": {
-            str(relay_number): RELAY_APPLIED_STATE[relay_number]
+            str(relay_number): None
             for relay_number in range(1, 9)
         },
-        "updated_at": RELAY_STATUS_UPDATED_AT,
+        "updated_at": None,
     }

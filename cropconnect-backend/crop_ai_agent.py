@@ -1,7 +1,6 @@
 import json
 from typing import Any
 
-
 CORE_READING_FIELDS = ("soil_moisture", "humidity", "temperature", "ph")
 OPTIONAL_READING_FIELDS = ("nitrogen", "phosphorus", "potassium")
 

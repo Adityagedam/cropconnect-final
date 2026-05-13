@@ -5,7 +5,6 @@ import mysql.connector
 from esp32_ingest import run_database_migrations
 from logging_config import configure_logging
 
-
 logger = configure_logging()
 
 

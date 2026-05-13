@@ -1,0 +1,13 @@
+repository:
+  name: cropconnect01
+  description: AI-assisted farming dashboard for ESP32 sensors, pump control, crop planning, weather, and mandi market insights.
+  homepage: https://cropconnect01.vercel.app/
+  topics:
+    - python
+    - fastapi
+    - react
+    - iot
+    - agriculture
+    - esp32
+    - mysql
+    - openai

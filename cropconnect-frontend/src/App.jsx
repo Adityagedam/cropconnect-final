@@ -14,7 +14,7 @@ import { API } from "./lib/api";
 
 import { LandingLanguageProvider } from "./components/landing/LandingLanguageContext";
 
-function ProtectedPage({ children }) {
+export function ProtectedPage({ children }) {
   const location = useLocation();
   const [authState, setAuthState] = useState("checking");
 

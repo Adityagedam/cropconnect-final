@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
   Beaker,
@@ -133,7 +133,7 @@ export default function CropPlanner({
     });
   }, [dashboardSensorData, dashboardSensorConnection]);
 
-  const refreshSensors = async () => {
+  const refreshSensors = useCallback(async () => {
     if (dashboardSensorData) return sensorConnection.deviceId || dashboardSensorConnection?.deviceId || userProfile?.sensorDeviceId || "";
     setLoadingSensors(true);
     setError("");
@@ -159,9 +159,9 @@ export default function CropPlanner({
     } finally {
       setLoadingSensors(false);
     }
-  };
+  }, [dashboardSensorConnection?.deviceId, dashboardSensorData, sensorConnection.deviceId, userProfile]);
 
-  const loadRecommendations = async (deviceIdOverride = "") => {
+  const loadRecommendations = useCallback(async (deviceIdOverride = "") => {
     const deviceId = deviceIdOverride || sensorConnection.deviceId || userProfile?.sensorDeviceId || "";
     if (!deviceId) {
       setCropRecommendations([]);
@@ -221,7 +221,7 @@ export default function CropPlanner({
     } finally {
       setLoadingRecommendations(false);
     }
-  };
+  }, [selectedGoal, sensorConnection.deviceId, sensorConnection.source, userProfile?.sensorDeviceId]);
 
   useEffect(() => {
     refreshSensors();
@@ -229,7 +229,7 @@ export default function CropPlanner({
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [dashboardSensorData]);
+  }, [dashboardSensorData, refreshSensors]);
 
   useEffect(() => {
     if (!profileLoaded) return;
@@ -250,6 +250,7 @@ export default function CropPlanner({
     sensorData.humidity,
     sensorData.temperature,
     sensorData.ph,
+    loadRecommendations,
   ]);
 
   const suitableCrops = useMemo(

@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, useRef, useState, useEffect } from "react";
+import { createContext, useCallback, useContext, useMemo, useRef, useState, useEffect } from "react";
 import axios from "axios";
 import { translations } from "../../lib/translations";
 import { API } from "../../lib/api";
@@ -9,6 +9,7 @@ const LanguageContext = createContext(null);
 const SKIP_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEXTAREA", "INPUT", "SELECT", "OPTION", "CODE", "PRE"]);
 const TRANSLATABLE_ATTRIBUTES = ["placeholder", "title", "aria-label"];
 const BRAND_TEXT = new Set(["CropConnect"]);
+const TRANSLATION_CACHE_MAX_ITEMS = 500;
 const AUTO_TRANSLATE_ROOT = "[data-auto-translate-root='true'], [data-public-translate-root='true']";
 const SKIP_TRANSLATE_SELECTOR = [
   "[data-no-translate='true']",
@@ -39,6 +40,17 @@ const shouldTranslateText = (text) => {
   if (/^[\d\s.,:%/+\u00b0-]+$/.test(value)) return false;
   return /[A-Za-z]/.test(value);
 };
+
+const boundedLanguageCache = (entries = {}) =>
+  Object.fromEntries(Object.entries(entries).slice(-TRANSLATION_CACHE_MAX_ITEMS));
+
+const mergeTranslationCache = (existingCache, targetLang, additions) => ({
+  ...existingCache,
+  [targetLang]: boundedLanguageCache({
+    ...(existingCache[targetLang] || {}),
+    ...additions,
+  }),
+});
 
 const nearestSkipsTranslation = (node) => {
   const element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
@@ -196,7 +208,10 @@ export function LandingLanguageProvider({ children }) {
   // Cache for AI translations to avoid redundant API calls
   const [cache, setCache] = useState(() => {
     try {
-      return JSON.parse(localStorage.getItem("cropconnect-cache") || "{}");
+      const storedCache = JSON.parse(localStorage.getItem("cropconnect-cache") || "{}");
+      return Object.fromEntries(
+        Object.entries(storedCache).map(([lang, entries]) => [lang, boundedLanguageCache(entries)])
+      );
     } catch {
       return {};
     }
@@ -207,7 +222,7 @@ export function LandingLanguageProvider({ children }) {
     localStorage.setItem("cropconnect-cache", JSON.stringify(cache));
   }, [cache]);
 
-  const translateText = async (text, targetLang = language) => {
+  const translateText = useCallback(async (text, targetLang = language) => {
     if (!text || targetLang === "en") return text;
     if (!publicTranslationEnabled) return text;
 
@@ -222,22 +237,16 @@ export function LandingLanguageProvider({ children }) {
       const translated = response.data.translated;
 
       // Update cache
-      setCache(prev => ({
-        ...prev,
-        [targetLang]: {
-          ...(prev[targetLang] || {}),
-          [text]: translated
-        }
-      }));
+      setCache((prev) => mergeTranslationCache(prev, targetLang, { [text]: translated }));
 
       return translated;
     } catch (err) {
       console.error("AI Translation failed:", err);
       return text; // Fallback to English
     }
-  };
+  }, [cache, language]);
 
-  const translateTexts = async (texts, targetLang = language) => {
+  const translateTexts = useCallback(async (texts, targetLang = language) => {
     if (!texts?.length || targetLang === "en") return texts;
     if (!publicTranslationEnabled) return texts;
 
@@ -257,20 +266,14 @@ export function LandingLanguageProvider({ children }) {
         return acc;
       }, {});
 
-      setCache(prev => ({
-        ...prev,
-        [targetLang]: {
-          ...(prev[targetLang] || {}),
-          ...translatedMap
-        }
-      }));
+      setCache((prev) => mergeTranslationCache(prev, targetLang, translatedMap));
 
       return texts.map((text) => translatedMap[text] || cache[targetLang]?.[text] || text);
     } catch (err) {
       console.error("AI batch translation failed:", err);
       return texts;
     }
-  };
+  }, [cache, language]);
 
   const value = useMemo(() => {
     const t = (key) => {
@@ -289,7 +292,7 @@ export function LandingLanguageProvider({ children }) {
       },
       t
     };
-  }, [language, cache]);
+  }, [language, translateText, translateTexts]);
 
   return (
     <LanguageContext.Provider value={value}>

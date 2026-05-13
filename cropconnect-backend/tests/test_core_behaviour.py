@@ -7,7 +7,6 @@ from unittest.mock import patch
 
 from pydantic import ValidationError
 
-
 os.environ.setdefault("CROP_DATA_SECRET_KEY", "test-data-secret-for-unit-tests")
 os.environ.setdefault("CROP_AUTH_TOKEN_SECRET", "test-auth-secret-for-unit-tests")
 
@@ -183,6 +182,7 @@ class BackendCoreBehaviourTests(unittest.TestCase):
         payload = relay_status_payload({1: True})
         self.assertTrue(payload["desired"]["1"])
         self.assertFalse(payload["desired"]["2"])
+        self.assertIsNone(payload["applied"]["1"])
 
     def test_request_json_retries_transient_network_failures(self):
         class FakeResponse:

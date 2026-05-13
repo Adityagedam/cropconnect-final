@@ -1,8 +1,383 @@
-from fastapi import APIRouter
+# ruff: noqa: F821
+from __future__ import annotations
+
+from typing import get_type_hints
+
+from fastapi import APIRouter, Cookie, Header, HTTPException, Query
+
+AUTH_COOKIE_NAME = "cropconnect_auth"
+
+_core = None
+
+
+def _resolve_route_types(*functions):
+    for func in functions:
+        func.__annotations__ = get_type_hints(func, globalns=globals(), localns=globals())
+
+
+def _bind_core(core):
+    global _core
+    _core = core
+    for name in dir(core):
+        if not name.startswith("__"):
+            globals()[name] = getattr(core, name)
+
+
+def market_text(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip()
+    return "" if text in {"", "--", "NA", "N/A", "null", "None"} else text
+
+
+def market_number(value: Any) -> float | int | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, Decimal):
+        value = float(value)
+    try:
+        number = float(str(value).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return None
+    if not number.is_integer():
+        return round(number, 2)
+    return int(number)
+
+
+def market_record_value(record: dict[str, Any], *names: str) -> Any:
+    normalized = {
+        re.sub(r"[^a-z0-9]", "", str(key).lower()): value
+        for key, value in record.items()
+    }
+    for name in names:
+        key = re.sub(r"[^a-z0-9]", "", name.lower())
+        if key in normalized:
+            return normalized[key]
+    return None
+
+
+def normalize_market_record(record: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "state": market_text(market_record_value(record, "state")),
+        "district": market_text(market_record_value(record, "district")),
+        "market": market_text(market_record_value(record, "market")),
+        "commodity": market_text(market_record_value(record, "commodity")),
+        "variety": market_text(market_record_value(record, "variety")),
+        "grade": market_text(market_record_value(record, "grade")),
+        "arrivalDate": market_text(market_record_value(record, "arrival_date", "arrival date", "arrivaldate")),
+        "minPrice": market_number(market_record_value(record, "min_price", "min price", "minprice")),
+        "maxPrice": market_number(market_record_value(record, "max_price", "max price", "maxprice")),
+        "modalPrice": market_number(market_record_value(record, "modal_price", "modal price", "modalprice")),
+    }
+
+
+def market_record_has_price(record: dict[str, Any]) -> bool:
+    return any(record.get(key) is not None for key in ("minPrice", "maxPrice", "modalPrice"))
+
+
+def market_payload_from_records(
+    records: list[dict[str, Any]],
+    requested_state: str,
+    requested_location: str,
+    matched_district: str = "",
+    message: str = "",
+) -> dict[str, Any]:
+    prices = [
+        item
+        for item in (normalize_market_record(record) for record in records if isinstance(record, dict))
+        if item.get("commodity") and item.get("market") and market_record_has_price(item)
+    ]
+
+    mandi_groups: dict[str, dict[str, Any]] = {}
+    for item in prices:
+        key = "|".join([item.get("market") or "", item.get("district") or ""])
+        group = mandi_groups.setdefault(
+            key,
+            {
+                "name": item.get("market") or "--",
+                "district": item.get("district") or "",
+                "state": item.get("state") or requested_state,
+                "commodities": [],
+            },
+        )
+        if len(group["commodities"]) < 6:
+            group["commodities"].append(
+                {
+                    "commodity": item.get("commodity") or "--",
+                    "modalPrice": item.get("modalPrice"),
+                    "minPrice": item.get("minPrice"),
+                    "maxPrice": item.get("maxPrice"),
+                    "arrivalDate": item.get("arrivalDate") or "",
+                }
+            )
+
+    return {
+        "ok": True,
+        "source": "Data.gov.in live Agmarknet mandi prices",
+        "sourceUrl": DATA_GOV_MARKET_RESOURCE_URL,
+        "requestedState": requested_state,
+        "requestedLocation": requested_location,
+        "matchedDistrict": matched_district,
+        "recordsCount": len(prices),
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+        "message": message or ("No live mandi records found for this location." if not prices else ""),
+        "prices": prices[:60],
+        "mandis": list(mandi_groups.values())[:12],
+    }
+
+
+def data_gov_market_records(state: str, district: str = "", commodity: str = "") -> list[dict[str, Any]]:
+    params = {
+        "api-key": DATA_GOV_API_KEY,
+        "format": "json",
+        "limit": str(MARKET_PRICE_LIMIT),
+        "offset": "0",
+        "filters[State]": state,
+    }
+    if district:
+        params["filters[District]"] = district
+    if commodity:
+        params["filters[Commodity]"] = commodity
+
+    url = f"{DATA_GOV_MARKET_RESOURCE_URL}?{urllib.parse.urlencode(params)}"
+    payload = request_json(url)
+    records = payload.get("records") if isinstance(payload, dict) else []
+    return [record for record in records if isinstance(record, dict)] if isinstance(records, list) else []
+
+
+def user_market_location(profile: dict[str, Any]) -> tuple[str, str, str]:
+    state = market_text(profile.get("state"))
+    district = market_text(profile.get("district"))
+    location_type = str(profile.get("locationType") or profile.get("location_type") or "").strip().lower()
+    primary_place = profile.get("village") if location_type == "village" else profile.get("city")
+    fallback_place = profile.get("city") or profile.get("village") or profile.get("location")
+    place = market_text(primary_place or fallback_place)
+    location_parts = [place]
+    if district and district.lower() != place.lower():
+        location_parts.append(district)
+    location_parts.append(state)
+    requested_location = ", ".join([part for part in location_parts if part])
+    return state, district or place, requested_location
+
+
+def live_market_context_for_profile(profile: dict[str, Any]) -> dict[str, Any]:
+    state, district_candidate, requested_location = user_market_location(profile)
+    if not state:
+        return market_payload_from_records(
+            [],
+            "",
+            requested_location,
+            message="State is missing from the user profile, so local mandi prices cannot be loaded.",
+        )
+    if not DATA_GOV_API_KEY:
+        return market_payload_from_records(
+            [],
+            state,
+            requested_location,
+            message="DATA_GOV_API_KEY is not configured, so live mandi prices are unavailable.",
+        )
+
+    try:
+        records = []
+        matched_district = ""
+        message = ""
+        if district_candidate:
+            records = data_gov_market_records(state, district_candidate)
+            matched_district = district_candidate if records else ""
+        if not records:
+            records = data_gov_market_records(state)
+            if district_candidate and records:
+                message = (
+                    f"No district-level mandi records found for {district_candidate}; "
+                    "showing latest state-level records."
+                )
+        return market_payload_from_records(records, state, requested_location, matched_district, message)
+    except Exception as exc:
+        log_backend_error("Data.gov mandi context failed", exc)
+        return market_payload_from_records(
+            [],
+            state,
+            requested_location,
+            message="Live mandi feed is currently unavailable.",
+        )
+
+
+def build_market_insight_messages(context: dict[str, Any], language: str | None, objective: str) -> list[dict[str, str]]:
+    return [
+        {
+            "role": "developer",
+            "content": (
+                "You are CropConnect's AI market analyst for farmers. Analyze only the supplied live mandi records, "
+                "profile, and sensor context. Do not invent prices, markets, demand, weather, crop stock, or exact profit. "
+                "If recordsCount is 0 or live prices are unavailable, return a summary saying live market data is unavailable "
+                "and keep recommendations empty. Treat null, empty, unavailable, and -- values as unknown, never as zero. "
+                "Return strict JSON only with this shape: "
+                "{\"summary\":\"short farmer-ready summary\","
+                "\"recommendations\":[{\"title\":\"short title\",\"action\":\"what to do\",\"reason\":\"why from data\",\"confidence\":\"low|medium|high\"}],"
+                "\"watch\":[\"short risk or thing to monitor\"]}. "
+                "Keep recommendations practical and cautious, not financial certainty. "
+                f"Answer in {selected_language_name(language)}."
+            ),
+        },
+        {
+            "role": "user",
+            "content": json.dumps(
+                {
+                    "objective": objective,
+                    "context": context,
+                },
+                ensure_ascii=False,
+                default=str,
+            ),
+        },
+    ]
+
+
+def normalize_market_insight_payload(parsed: Any) -> dict[str, Any]:
+    if not isinstance(parsed, dict):
+        raise ValueError("AI market insight returned non-object JSON")
+
+    recommendations = parsed.get("recommendations")
+    if not isinstance(recommendations, list):
+        recommendations = []
+    cleaned_recommendations = []
+    for item in recommendations[:5]:
+        if not isinstance(item, dict):
+            continue
+        cleaned_recommendations.append(
+            {
+                "title": market_text(item.get("title")) or "--",
+                "action": market_text(item.get("action")) or "--",
+                "reason": market_text(item.get("reason")) or "--",
+                "confidence": market_text(item.get("confidence")) or "low",
+            }
+        )
+
+    watch = parsed.get("watch")
+    if not isinstance(watch, list):
+        watch = []
+
+    return {
+        "summary": market_text(parsed.get("summary")),
+        "recommendations": cleaned_recommendations,
+        "watch": [market_text(item) for item in watch[:5] if market_text(item)],
+    }
+
+
+def market_prices(
+    authorization: str | None = Header(default=None),
+    auth_cookie: str | None = Cookie(default=None, alias=AUTH_COOKIE_NAME),
+    commodity: str = Query(default="", max_length=80),
+):
+    owner_id, _owner_email = require_auth_owner(authorization, auth_cookie)
+    rate_limit_authenticated_request(owner_id, "market-prices", limit=20, window_seconds=60)
+
+    if not DATA_GOV_API_KEY:
+        raise HTTPException(status_code=503, detail="Live mandi price feed is not configured")
+
+    profile = owner_profile_context(owner_id)
+    state, district_candidate, requested_location = user_market_location(profile)
+    if not state:
+        raise HTTPException(status_code=400, detail="Add your state in profile to load local mandi prices")
+
+    requested_commodity = market_text(commodity)
+    matched_district = ""
+    message = ""
+    try:
+        records = []
+        if district_candidate:
+            records = data_gov_market_records(state, district_candidate, requested_commodity)
+            matched_district = district_candidate if records else ""
+        if not records:
+            records = data_gov_market_records(state, "", requested_commodity)
+            if district_candidate and records:
+                message = (
+                    f"No district-level mandi records found for {district_candidate}; "
+                    "showing latest state-level records."
+                )
+    except Exception as exc:
+        raise_public_error(502, "Market price request failed", "Data.gov mandi request failed", exc)
+
+    return market_payload_from_records(records, state, requested_location, matched_district, message)
+
+
+def market_insights(
+    payload: MarketInsightIn,
+    authorization: str | None = Header(default=None),
+    auth_cookie: str | None = Cookie(default=None, alias=AUTH_COOKIE_NAME),
+):
+    owner_id, _owner_email = require_auth_owner(authorization, auth_cookie)
+    rate_limit_authenticated_request(owner_id, "ai-market-insights", limit=6, window_seconds=15 * 60)
+    require_openai()
+
+    if not DATA_GOV_API_KEY:
+        raise HTTPException(status_code=503, detail="Live mandi price feed is not configured")
+
+    owner_profile = owner_profile_context(owner_id)
+    device_id = str(owner_profile.get("sensorDeviceId") or "").strip()
+    market_context = live_market_context_for_profile(owner_profile)
+    live_sensor_context = latest_sensor_context(device_id) if device_id else {
+        "source": "unavailable",
+        "sensor_data": {},
+        "message": "No sensor device is configured for this account.",
+    }
+
+    if not market_context.get("recordsCount"):
+        return {
+            "ok": True,
+            "source": "no_live_market_data",
+            "model": None,
+            "summary": market_context.get("message") or "Live mandi prices are unavailable for this location.",
+            "recommendations": [],
+            "watch": [],
+            "market_data": market_context,
+            "sensor_context": live_sensor_context,
+        }
+
+    context = {
+        "account": {
+            "state": owner_profile.get("state") or "",
+            "district": owner_profile.get("district") or "",
+            "city": owner_profile.get("city") or "",
+            "village": owner_profile.get("village") or "",
+            "land_size": owner_profile.get("landSize"),
+        },
+        "market_data": market_context,
+        "live_sensor_context": live_sensor_context,
+    }
+
+    try:
+        data = request_json(
+            "https://api.openai.com/v1/chat/completions",
+            {
+                "model": OPENAI_MODEL,
+                "messages": build_market_insight_messages(context, payload.language, payload.objective),
+                "temperature": 0.2,
+                "max_tokens": 800,
+            },
+            {"Authorization": f"Bearer {OPENAI_API_KEY}"},
+        )
+        raw = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        insight = normalize_market_insight_payload(parse_ai_json(raw))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise_public_error(502, "AI market insight failed", "AI market insight request failed", exc)
+
+    return {
+        "ok": True,
+        "source": "openai_with_live_market_data",
+        "model": OPENAI_MODEL,
+        **insight,
+        "market_data": market_context,
+        "sensor_context": live_sensor_context,
+    }
 
 
 def create_router(core) -> APIRouter:
+    _bind_core(core)
+    _resolve_route_types(market_text, market_number, market_record_value, normalize_market_record, market_record_has_price, market_payload_from_records, data_gov_market_records, user_market_location, live_market_context_for_profile, build_market_insight_messages, normalize_market_insight_payload, market_prices, market_insights)
     router = APIRouter()
-    router.add_api_route("/api/market/prices", core.market_prices, methods=["GET"])
-    router.add_api_route("/api/market/insights", core.market_insights, methods=["POST"])
+    router.add_api_route('/api/market/prices', market_prices, methods=['GET'])
+    router.add_api_route('/api/market/insights', market_insights, methods=['POST'])
     return router

@@ -1,0 +1,69 @@
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: cropconnect_root
+      MYSQL_DATABASE: cropconnect
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-pcropconnect_root"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    image: python:3.12-slim
+    working_dir: /app/cropconnect-backend
+    volumes:
+      - .:/app
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      MYSQL_USER: root
+      MYSQL_PASSWORD: cropconnect_root
+      MYSQL_DATABASE: cropconnect
+      MYSQL_FARMERS_DATABASE: farmers
+      MYSQL_POOL_SIZE: "5"
+      CROP_DATA_SECRET_KEY: docker_dev_data_secret_change_me_32_chars
+      CROP_AUTH_TOKEN_SECRET: docker_dev_auth_secret_change_me_32_chars
+      AUTH_COOKIE_SECURE: "false"
+      AUTH_COOKIE_SAMESITE: lax
+      FRONTEND_ORIGINS: http://localhost:3000
+      FRONTEND_PUBLIC_URL: http://localhost:3000
+      ESP32_GET_WRITE_ENABLED: "true"
+      QUERY_API_KEY_ENABLED: "true"
+      ALLOW_GLOBAL_ESP32_API_KEY: "true"
+      ESP32_API_KEY: docker-dev-esp32-key
+      PUBLIC_TRANSLATION_ENABLED: "false"
+      PUBLIC_RATE_LIMIT_DB_FAIL_OPEN: "true"
+      OPENAI_API_KEY: ""
+      DATA_GOV_API_KEY: ""
+    command: >
+      sh -c "pip install --no-cache-dir -r requirements.txt &&
+             python migrate_db.py &&
+             uvicorn esp32_ingest:app --host 0.0.0.0 --port 8001"
+    ports:
+      - "8001:8001"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  frontend:
+    image: node:22-alpine
+    working_dir: /app/cropconnect-frontend
+    volumes:
+      - .:/app
+    environment:
+      VITE_BACKEND_URL: http://localhost:8001
+      VITE_PUBLIC_TRANSLATION_ENABLED: "false"
+    command: sh -c "npm ci && npm run start -- --host 0.0.0.0"
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+volumes:
+  mysql-data:

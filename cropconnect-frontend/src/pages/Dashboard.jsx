@@ -17,10 +17,7 @@ import {
   AlertTriangle,
   Info,
   Sprout,
-  Wheat,
-  Flower2,
   MapPin,
-  Navigation,
   User,
   Languages,
   Sun,
@@ -40,9 +37,11 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import LanguageSelect, { languages } from "../components/LanguageSelect";
-import AiChatPanel from "../components/dashboard/AiChatPanel";
+import ChatPanel from "../components/dashboard/ChatPanel";
 import MarketPanel from "../components/dashboard/MarketPanel";
-import PumpControlPanel from "../components/dashboard/PumpControlPanel";
+import PumpControl from "../components/dashboard/PumpControl";
+import SensorPanel from "../components/dashboard/SensorPanel";
+import WeatherPanel from "../components/dashboard/WeatherPanel";
 import CropPlanner from "./CropPlanner";
 import { toast } from "sonner";
 import { API, clearCsrfToken, csrfHeadersAsync } from "../lib/api";
@@ -219,7 +218,7 @@ const buildSensorAlerts = (data = {}, connection = {}) => {
     addAlert("soil-moisture-high", "Soil moisture is very high", `Latest SIM800L reading is ${data.soilMoisture}%. Check drainage and pump state.`);
   }
   if (isPresent(data.temperature) && data.temperature > 40) {
-    addAlert("temperature-high", "Temperature is high", `Latest SIM800L reading is ${data.temperature}°C. Avoid spraying and check crop stress.`);
+    addAlert("temperature-high", "Temperature is high", `Latest SIM800L reading is ${data.temperature}\u00b0C. Avoid spraying and check crop stress.`);
   }
   if (isPresent(data.soilPh) && (data.soilPh < 5.5 || data.soilPh > 8.5)) {
     addAlert("ph-out-of-range", "Soil pH needs attention", `Latest SIM800L pH reading is ${data.soilPh}. Confirm with a soil test before treatment.`);
@@ -314,6 +313,7 @@ export default function Dashboard() {
   const [sensorApiKeyError, setSensorApiKeyError] = useState("");
   const logContainerRef = useRef(null);
   const chatContainerRef = useRef(null);
+  const handleSendMessageRef = useRef(null);
   const pumpsRef = useRef(pumps);
   const activeSensorAlertsRef = useRef([]);
   const alertToastIntervalRef = useRef(null);
@@ -971,7 +971,7 @@ export default function Dashboard() {
     if (chatMessages.length === 0) {
       const firstName = userData.name.split(" ")[0] || "there";
       const welcomeText = sensorConnection.source === "esp32"
-        ? `Welcome back, ${firstName}. Live ESP32 readings: soil moisture ${displayValue(sensorData.soilMoisture, "%")}, temperature ${displayValue(sensorData.temperature, "°C")}, humidity ${displayValue(sensorData.humidity, "%")}. How can I help?`
+        ? `Welcome back, ${firstName}. Live ESP32 readings: soil moisture ${displayValue(sensorData.soilMoisture, "%")}, temperature ${displayValue(sensorData.temperature, "\u00b0C")}, humidity ${displayValue(sensorData.humidity, "%")}. How can I help?`
         : `Welcome back, ${firstName}. No ESP32 readings are available yet, so missing values are shown as ${EMPTY_DISPLAY}. How can I help?`;
       setChatMessages([
         {
@@ -1165,7 +1165,7 @@ export default function Dashboard() {
     }
   };
   // Language detection function
-  const detectLanguage = (text) => {
+  const detectLanguage = useCallback((text) => {
     if (!text || text.trim().length === 0) return language;
 
     if (/[\u0900-\u097F]/.test(text)) return 'hi';
@@ -1174,7 +1174,7 @@ export default function Dashboard() {
     if (/[\u0C80-\u0CFF]/.test(text)) return 'kn';
     if (/[\u0980-\u09FF]/.test(text)) return 'bn';
     return 'en';
-  };
+  }, [language]);
 
   // Get speech recognition language code
   const getSpeechLangCode = (langCode) => {
@@ -1220,7 +1220,7 @@ export default function Dashboard() {
         }
 
         speechSentRef.current = true;
-        setTimeout(() => handleSendMessage(transcript, null, detectedLang), 500);
+        setTimeout(() => handleSendMessageRef.current?.(transcript, null, detectedLang), 500);
       };
 
       recognition.onerror = (event) => {
@@ -1241,7 +1241,7 @@ export default function Dashboard() {
 
       setSpeechRecognition(recognition);
     }
-  }, [language]);
+  }, [detectLanguage, language]);
 
   const startListening = () => {
     if (speechRecognition && !isListening) {
@@ -1448,11 +1448,6 @@ export default function Dashboard() {
     "chatSuggestionWeather",
   ];
 
-  // Mini bar chart component
-  const MiniBarChart = ({ color, data = 12 }) => {
-    return null;
-  };
-
   // Line chart component
   const LineChart = ({ data, color, height = 120 }) => {
     if (!Array.isArray(data) || data.length < 2) {
@@ -1583,45 +1578,6 @@ export default function Dashboard() {
     );
   };
 
-  // Sensor card component
-  const SensorCard = ({ icon: Icon, title, value, unit, color, min, max, barValue }) => {
-    const colorStyles = {
-      green: colors.greenLight,
-      orange: colors.terracotta,
-      blue: colors.blue,
-      gold: colors.gold,
-    };
-    const fill = colorStyles[color] || colors.greenLight;
-    const numericBarValue = numericOrNull(barValue);
-
-    return (
-      <div className="p-4 rounded-xl bg-white border border-[#e8e3d8] shadow-sm">
-        <div className="flex items-center gap-2 mb-3">
-          <div className="p-1.5 rounded-lg" style={{ background: `${fill}20` }}>
-            <Icon className="w-4 h-4" style={{ color: fill }} />
-          </div>
-          <span className="text-sm font-medium" style={{ color: colors.textDark }}>{title}</span>
-        </div>
-        <p className="text-3xl font-mono font-bold" style={{ color: colors.textDark }}>
-          {displayValue(value)}
-          {isPresent(value) && <span className="text-base font-normal ml-1" style={{ color: colors.textLight }}>{unit}</span>}
-        </p>
-        <div className="mt-3">
-          <div className="flex justify-between text-xs mb-1" style={{ color: colors.textLight }}>
-            <span>{min}</span>
-            <span>{max}</span>
-          </div>
-          <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
-            <div className="h-full rounded-full transition-all duration-500" style={{ width: `${numericBarValue === null ? 0 : Math.max(0, Math.min(100, numericBarValue))}%`, background: `linear-gradient(90deg, ${fill}, ${fill}80)` }} />
-          </div>
-        </div>
-        {numericBarValue !== null && <div className="mt-3">
-          <MiniBarChart color={fill} />
-        </div>}
-      </div>
-    );
-  };
-
   // Field Map Component
   const FieldMap = () => {
     const zoneHasAlert = (zoneName) => activeSensorAlerts.some((alert) => alert.zone === zoneName);
@@ -1708,7 +1664,7 @@ export default function Dashboard() {
             {/* Metric Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <MetricCard icon={Droplets} title="Soil Moisture" value={sensorData.soilMoisture} unit="%" color="green" progress={sensorData.soilMoisture} />
-              <MetricCard icon={CloudSun} title="Temperature" value={sensorData.temperature} unit="°C" color="orange" progress={isPresent(sensorData.temperature) ? percentValue(sensorData.temperature, 40) : null} />
+              <MetricCard icon={CloudSun} title="Temperature" value={sensorData.temperature} unit={"\u00b0C"} color="orange" progress={isPresent(sensorData.temperature) ? percentValue(sensorData.temperature, 40) : null} />
               <MetricCard icon={Radio} title="Humidity" value={sensorData.humidity} unit="%" color="blue" progress={sensorData.humidity} />
               <MetricCard icon={Sprout} title="Soil pH" value={displayValue(sensorData.soilPh)} unit="" color="gold" progress={isPresent(sensorData.soilPh) ? percentValue(sensorData.soilPh, 10) : null} />
             </div>
@@ -1738,76 +1694,17 @@ export default function Dashboard() {
 
       case "sensors":
         return (
-          <div className="space-y-6">
-            <div className="p-4 rounded-xl border border-[#d5d1c5] bg-[#f7f5ef] shadow-sm">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold" style={{ color: colors.textDark }}>Sensor connection</p>
-                  <p className="text-xs text-slate-600">Device: <span className="font-mono">{displayValue(sensorConnection.deviceId)}</span></p>
-                  <p className="text-xs text-slate-600">Status: <span className="font-semibold">{sensorConnection.source === "esp32" ? "ESP32 Live" : "Unavailable"}</span></p>
-                  {sensorConnection.error ? <p className="text-xs text-amber-800 mt-1">{sensorConnection.error}</p> : null}
-                </div>
-                <div className="text-right">
-                  <p className="text-xs text-slate-600">Last seen</p>
-                  <p className="text-sm font-medium" style={{ color: colors.textDark }}>{sensorConnection.lastSeen ? new Date(sensorConnection.lastSeen).toLocaleTimeString() : "No packet yet"}</p>
-                </div>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              <SensorCard icon={Droplets} title="Soil Moisture" value={sensorData.soilMoisture} unit="%" color="green" min="0%" max="100%" barValue={sensorData.soilMoisture} />
-              <SensorCard icon={CloudSun} title="Temperature" value={sensorData.temperature} unit="°C" color="orange" min="10°C" max="45°C" barValue={isPresent(sensorData.temperature) ? ((sensorData.temperature - 10) / 35) * 100 : null} />
-              <SensorCard icon={Radio} title="Humidity" value={sensorData.humidity} unit="%" color="blue" min="0%" max="100%" barValue={sensorData.humidity} />
-              <SensorCard icon={Sprout} title="Soil pH" value={displayValue(sensorData.soilPh)} unit="" color="gold" min="4" max="10" barValue={isPresent(sensorData.soilPh) ? ((sensorData.soilPh - 4) / 6) * 100 : null} />
-              <SensorCard icon={Leaf} title="Nitrogen" value={sensorData.nitrogen} unit="mg/kg" color="green" min="0" max="100" barValue={isPresent(sensorData.nitrogen) ? Math.min(sensorData.nitrogen, 100) : null} />
-              <SensorCard icon={Wheat} title="Phosphorus" value={sensorData.phosphorus} unit="mg/kg" color="orange" min="0" max="100" barValue={isPresent(sensorData.phosphorus) ? Math.min(sensorData.phosphorus, 100) : null} />
-              <SensorCard icon={Flower2} title="Potassium" value={sensorData.potassium} unit="mg/kg" color="blue" min="0" max="100" barValue={isPresent(sensorData.potassium) ? Math.min(sensorData.potassium, 100) : null} />
-            </div>
-            <div className="p-5 rounded-xl bg-white border border-[#e8e3d8] shadow-sm overflow-x-auto">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
-                <h3 className="font-semibold" style={{ color: colors.textDark }}>Crop Sensor Alert Ranges</h3>
-              </div>
-              <div className="p-6 text-center text-sm" style={{ color: colors.textLight }}>{EMPTY_DISPLAY}</div>
-            </div>
-
-            <div className="p-5 rounded-xl bg-white border border-[#e8e3d8] shadow-sm overflow-x-auto">
-              <h3 className="font-semibold mb-4" style={{ color: colors.textDark }}>Sensor Nodes</h3>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b" style={{ borderColor: colors.creamDark }}>
-                    <th className="text-left py-3 px-3 font-medium" style={{ color: colors.textMid }}>Node ID</th>
-                    <th className="text-left py-3 px-3 font-medium" style={{ color: colors.textMid }}>Zone</th>
-                    <th className="text-left py-3 px-3 font-medium" style={{ color: colors.textMid }}>Moisture</th>
-                    <th className="text-left py-3 px-3 font-medium" style={{ color: colors.textMid }}>Temp</th>
-                    <th className="text-left py-3 px-3 font-medium" style={{ color: colors.textMid }}>Humidity</th>
-                    <th className="text-left py-3 px-3 font-medium" style={{ color: colors.textMid }}>pH</th>
-                    <th className="text-left py-3 px-3 font-medium" style={{ color: colors.textMid }}>NPK</th>
-                    <th className="text-left py-3 px-3 font-medium" style={{ color: colors.textMid }}>Status</th>
-                    <th className="text-left py-3 px-3 font-medium" style={{ color: colors.textMid }}>Last Seen</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr className="border-b" style={{ borderColor: colors.creamDark }}>
-                    <td className="py-3 px-3 font-mono" style={{ color: colors.textDark }}>{displayValue(userData.sensorDeviceId)}</td>
-                    <td className="py-3 px-3" style={{ color: colors.textMid }}>Zone A</td>
-                    <td className="py-3 px-3 font-mono" style={{ color: colors.textDark }}>{displayValue(sensorData.soilMoisture, "%")}</td>
-                    <td className="py-3 px-3 font-mono" style={{ color: colors.textDark }}>{displayValue(sensorData.temperature, "°C")}</td>
-                    <td className="py-3 px-3 font-mono" style={{ color: colors.textDark }}>{displayValue(sensorData.humidity, "%")}</td>
-                    <td className="py-3 px-3 font-mono" style={{ color: colors.textDark }}>{displayValue(sensorData.soilPh)}</td>
-                    <td className="py-3 px-3 font-mono" style={{ color: colors.textDark }}>{[sensorData.nitrogen, sensorData.phosphorus, sensorData.potassium].every(isPresent) ? `${sensorData.nitrogen}/${sensorData.phosphorus}/${sensorData.potassium}` : EMPTY_DISPLAY}</td>
-                    <td className="py-3 px-3">{sensorConnection.source === "esp32" ? <StatusChip status="OK" /> : EMPTY_DISPLAY}</td>
-                    <td className="py-3 px-3 text-xs" style={{ color: colors.textLight }}>
-                      {sensorConnection.lastSeen ? new Date(sensorConnection.lastSeen).toLocaleTimeString() : userData.sensorSetupStatus === "waiting" ? "Waiting for first packet" : EMPTY_DISPLAY}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <SensorPanel
+            colors={colors}
+            sensorConnection={sensorConnection}
+            sensorData={sensorData}
+            userData={userData}
+          />
         );
 
       case "pump":
         return (
-          <PumpControlPanel
+          <PumpControl
             colors={colors}
             isDark={isDark}
             userData={userData}
@@ -1829,139 +1726,13 @@ export default function Dashboard() {
         );
 
       case "weather":
-        const weather = weatherData || {};
-        const weatherCond = {
-          icon: EMPTY_DISPLAY,
-          condition: weather.condition || EMPTY_DISPLAY,
-          advice: weather.advice || EMPTY_DISPLAY,
-        };
-        const rainfallSeries = (weatherData?.rainfall || []).filter((item) => isPresent(item.value));
-        const rainfallPoints = rainfallSeries.map((item, index) => {
-          const x = rainfallSeries.length <= 1 ? 20 : 20 + (index * 260) / (rainfallSeries.length - 1);
-          const y = 100 - Math.max(0, Math.min(100, item.value || 0)) * 0.8;
-          return { ...item, x, y };
-        });
-        const rainfallLine = rainfallPoints.map((point) => `${point.x},${point.y}`).join(" ");
-        const rainfallArea = rainfallPoints.length
-          ? `20,108 ${rainfallLine} ${rainfallPoints[rainfallPoints.length - 1].x},108`
-          : "";
-        const peakRainfall = rainfallSeries.reduce((peak, item) => Math.max(peak, item.value || 0), 0);
         return (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="lg:col-span-2 p-6 rounded-xl" style={{ background: `linear-gradient(135deg, ${colors.greenDark}, #0f2a1f)` }}>
-                <div className="flex items-center gap-2 mb-2">
-                  <MapPin className="w-4 h-4 text-white/70" />
-                  <p className="text-sm" style={{ color: colors.creamDark }}>{userData.locationType === "city" ? userData.city : userData.village}, {userData.state}</p>
-                </div>
-                <div className="flex items-center gap-4 mb-4">
-                  <span className="text-5xl">{weatherCond?.icon || EMPTY_DISPLAY}</span>
-                  <div>
-                    <p className="text-4xl font-mono font-bold" style={{ color: colors.cream }}>{displayValue(weather.temp, "°C")}</p>
-                    <p className="text-lg" style={{ color: colors.creamDark }}>{weatherCond?.condition || EMPTY_DISPLAY}</p>
-                  </div>
-                </div>
-                <div className="grid grid-cols-3 gap-4 mb-4">
-                  <div className="p-3 rounded-lg" style={{ background: "rgba(255,255,255,0.1)" }}>
-                    <p className="text-xs" style={{ color: colors.creamDark }}>Humidity</p>
-                    <p className="text-lg font-mono" style={{ color: colors.cream }}>{displayValue(weather.humidity, "%")}</p>
-                  </div>
-                  <div className="p-3 rounded-lg" style={{ background: "rgba(255,255,255,0.1)" }}>
-                    <p className="text-xs" style={{ color: colors.creamDark }}>Wind</p>
-                    <p className="text-lg font-mono" style={{ color: colors.cream }}>{displayValue(weather.wind, " km/h")}</p>
-                  </div>
-                  <div className="p-3 rounded-lg" style={{ background: "rgba(255,255,255,0.1)" }}>
-                    <p className="text-xs" style={{ color: colors.creamDark }}>Pressure</p>
-                    <p className="text-lg font-mono" style={{ color: colors.cream }}>{displayValue(weather.pressure, " hPa")}</p>
-                  </div>
-                </div>
-                <div className="p-4 rounded-lg" style={{ background: "rgba(255,255,255,0.08)" }}>
-                  <p className="text-sm" style={{ color: colors.creamDark }}>Advice: {weatherCond?.advice || EMPTY_DISPLAY}</p>
-                </div>
-              </div>
-
-              <div className="p-5 rounded-xl bg-white border border-[#e8e3d8] shadow-sm">
-                <div className="flex items-start justify-between gap-3 mb-4">
-                  <div>
-                    <h3 className="font-semibold" style={{ color: colors.textDark }}>7-Day Rainfall Prediction</h3>
-                    <p className="text-xs mt-1" style={{ color: colors.textLight }}>Live internet probability forecast</p>
-                  </div>
-                  {rainfallSeries.length > 0 && (
-                    <span className="px-2 py-1 rounded-md bg-blue-50 text-xs font-mono text-blue-700">
-                      Peak {peakRainfall}%
-                    </span>
-                  )}
-                </div>
-
-                {rainfallSeries.length > 0 ? (
-                  <div>
-                    <div className="h-40">
-                      <svg viewBox="0 0 300 126" className="h-full w-full" role="img" aria-label="7 day rainfall probability graph">
-                        {[20, 40, 60, 80, 100].map((value) => (
-                          <g key={value}>
-                            <line x1="20" x2="285" y1={108 - value * 0.8} y2={108 - value * 0.8} stroke="#E5E7EB" strokeWidth="1" />
-                            <text x="0" y={112 - value * 0.8} fontSize="8" fill="#8A9488">{value}</text>
-                          </g>
-                        ))}
-                        <polygon points={rainfallArea} fill="rgba(59, 130, 246, 0.14)" />
-                        <polyline points={rainfallLine} fill="none" stroke="#2563EB" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-                        {rainfallPoints.map((point) => (
-                          <g key={point.date || point.day}>
-                            <circle cx={point.x} cy={point.y} r="4" fill="#2563EB" stroke="#FFFFFF" strokeWidth="2" />
-                            <text x={point.x} y={point.y - 9} textAnchor="middle" fontSize="9" fill="#1A201C">{point.value}%</text>
-                          </g>
-                        ))}
-                      </svg>
-                    </div>
-                    <div className="grid grid-cols-7 gap-1 mt-2">
-                      {rainfallSeries.map((item) => (
-                        <div key={item.date || item.day} className="text-center">
-                          <p className="text-[11px] font-medium" style={{ color: colors.textDark }}>{item.day}</p>
-                          <p className="text-[10px]" style={{ color: colors.textLight }}>{displayValue(item.mm, " mm")}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="h-40 flex items-center justify-center text-center text-sm" style={{ color: colors.textLight }}>
-                    {weatherError ? "Live rainfall probability unavailable" : "Loading live rainfall probability..."}
-                  </div>
-                )}
-                <p className="text-xs text-center" style={{ color: colors.textLight }}>
-                  Live internet source: {weatherData?.source || (weatherError ? "Unavailable" : "Loading")}
-                </p>
-                {weatherData?.location && (
-                  <p className="mt-1 text-xs text-center" style={{ color: colors.textLight }}>
-                    Location: {[weatherData.location.name, weatherData.location.admin1].filter(Boolean).join(", ")}
-                  </p>
-                )}
-              </div>
-            </div>
-
-            <div className="p-5 rounded-xl bg-white border border-[#e8e3d8] shadow-sm">
-              <h3 className="font-semibold mb-4" style={{ color: colors.textDark }}>7-Day Forecast</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-4">
-                {(weatherData?.forecast || []).map((item) => (
-                  <div key={item.day} className="p-4 rounded-xl bg-gray-50 text-center">
-                    <p className="text-sm font-medium mb-2" style={{ color: colors.textDark }}>{item.day}</p>
-                    <span className="text-3xl">{item.icon}</span>
-                    <div className="mt-2">
-                      <p className="font-mono font-bold" style={{ color: colors.textDark }}>{displayValue(item.high, "°")}</p>
-                      <p className="text-sm" style={{ color: colors.textLight }}>{displayValue(item.low, "°")}</p>
-                    </div>
-                  </div>
-                ))}
-                {!(weatherData?.forecast || []).length && (
-                  <div className="col-span-full p-6 text-center text-sm" style={{ color: colors.textLight }}>{EMPTY_DISPLAY}</div>
-                )}
-              </div>
-            </div>
-
-            <div className="p-5 rounded-xl bg-white border border-[#e8e3d8] shadow-sm">
-              <h3 className="font-semibold mb-4" style={{ color: colors.textDark }}>Crop Weather Impact</h3>
-              <div className="p-6 text-center text-sm" style={{ color: colors.textLight }}>{EMPTY_DISPLAY}</div>
-            </div>
-          </div>
+          <WeatherPanel
+            colors={colors}
+            weatherData={weatherData}
+            weatherError={weatherError}
+            userData={userData}
+          />
         );
 
       case "notifications":
@@ -2077,7 +1848,7 @@ export default function Dashboard() {
 
       case "ai":
         return (
-          <AiChatPanel
+          <ChatPanel
             colors={colors}
             chatContainerRef={chatContainerRef}
             chatMessages={chatMessages}
@@ -2352,6 +2123,10 @@ export default function Dashboard() {
   const getInitials = (name) => {
     return name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
   };
+
+  useEffect(() => {
+    handleSendMessageRef.current = handleSendMessage;
+  });
   const selectedNavItem = navItems.find((item) => item.id === activePage) || navItems[0];
   const SensorSetupWindow = () => {
     const examplePayload = JSON.stringify(

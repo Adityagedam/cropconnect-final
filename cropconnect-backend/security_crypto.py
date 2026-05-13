@@ -9,7 +9,6 @@ from typing import Any
 
 from cryptography.fernet import Fernet, InvalidToken
 
-
 ENCRYPTED_PREFIX = "enc:v1:"
 PASSWORD_PREFIX = "pbkdf2_sha256"
 PBKDF2_ITERATIONS = 210_000
