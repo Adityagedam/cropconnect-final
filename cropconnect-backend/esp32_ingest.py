@@ -988,11 +988,10 @@ root = public_router.root
 
 def register_routers() -> None:
     core = sys.modules[__name__]
-    auth_service._bind_core(core)
     market_router._bind_core(core)
     weather_router._bind_core(core)
     app.include_router(public_router.create_router(core))
-    app.include_router(auth_router.create_router(core))
+    app.include_router(auth_router.router)
     app.include_router(sensors_router.create_router(core))
     app.include_router(pumps_router.create_router(core))
     app.include_router(farm_router.create_router(core))

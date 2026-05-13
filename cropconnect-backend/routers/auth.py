@@ -1,28 +1,60 @@
-# ruff: noqa: F821
-from __future__ import annotations
+# Authentication and profile API routes.
+import hashlib
+import secrets
+import urllib.parse
+from typing import Any
 
-from typing import get_type_hints
+import mysql.connector
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
-from fastapi import APIRouter, Cookie, Header, HTTPException, Request, Response
+from config import settings
+from db.connections import get_connection, get_farmers_connection
+from models import AuthLoginIn, AuthPasswordResetConfirmIn, AuthPasswordResetRequestIn, AuthProfileUpdateIn, AuthSignupIn
+from security_crypto import encrypt_text, hash_password, verify_password
+from services import rate_limit as rate_limit_service
+from services.auth_service import (
+    auth_token_for_user,
+    clear_auth_cookie,
+    generate_sensor_device_id,
+    send_password_reset_email,
+    set_auth_cookie,
+    set_csrf_cookie,
+    smtp_configured,
+    token_hash,
+    user_row_to_payload,
+)
+from services.deps import get_current_user
 
-AUTH_COOKIE_NAME = "cropconnect_auth"
+router = APIRouter()
 
-_core = None
-
-
-def _resolve_route_types(*functions):
-    for func in functions:
-        func.__annotations__ = get_type_hints(func, globalns=globals(), localns=globals())
+ENCRYPTED_PROFILE_FIELDS = {"name", "phone", "state", "location", "city", "village", "district"}
 
 
-def _bind_core(core):
-    global _core
-    _core = core
-    for name in dir(core):
-        if not name.startswith("__"):
-            globals()[name] = getattr(core, name)
+def raise_public_error(status_code: int, detail: str, _context: str, exc: Exception) -> None:
+    raise HTTPException(status_code=status_code, detail=detail) from exc
 
 
+def load_owner_profile(owner_id: int) -> dict[str, Any]:
+    try:
+        with get_farmers_connection() as conn:
+            with conn.cursor(dictionary=True) as cursor:
+                cursor.execute("SELECT * FROM `users` WHERE `id` = %s LIMIT 1", (owner_id,))
+                row = cursor.fetchone()
+    except Exception as exc:
+        raise_public_error(503, "Could not load account profile", "Owner profile lookup failed", exc)
+    return user_row_to_payload(row) if row else {}
+
+
+def rate_limit_public_request(request: Request, bucket: str, limit: int, window_seconds: int) -> None:
+    original_get_connection = rate_limit_service.get_connection
+    rate_limit_service.get_connection = get_connection
+    try:
+        rate_limit_service.rate_limit_public_request(request, bucket, limit, window_seconds)
+    finally:
+        rate_limit_service.get_connection = original_get_connection
+
+
+@router.post("/api/auth/signup")
 def auth_signup(payload: AuthSignupIn, request: Request, response: Response):
     email = payload.email.strip().lower()
     email_bucket = hashlib.sha256(email.encode("utf-8")).hexdigest()[:16]
@@ -99,6 +131,7 @@ def auth_signup(payload: AuthSignupIn, request: Request, response: Response):
     }
 
 
+@router.post("/api/auth/login")
 def auth_login(payload: AuthLoginIn, request: Request, response: Response):
     email = payload.email.strip().lower()
     email_bucket = hashlib.sha256(email.encode("utf-8")).hexdigest()[:16]
@@ -134,32 +167,29 @@ def auth_login(payload: AuthLoginIn, request: Request, response: Response):
     }
 
 
+@router.post("/api/auth/logout")
 def auth_logout(response: Response):
     clear_auth_cookie(response)
     return {"ok": True}
 
 
-def auth_csrf(
-    response: Response,
-    auth_cookie: str | None = Cookie(default=None, alias=AUTH_COOKIE_NAME),
-):
-    require_auth_owner(None, auth_cookie)
+@router.get("/api/auth/csrf")
+def auth_csrf(response: Response, _current_user: tuple[int, str] = Depends(get_current_user)):
     csrf_token = secrets.token_urlsafe(32)
     set_csrf_cookie(response, csrf_token)
     return {"ok": True, "csrfToken": csrf_token}
 
 
-def auth_profile(
-    authorization: str | None = Header(default=None),
-    auth_cookie: str | None = Cookie(default=None, alias=AUTH_COOKIE_NAME),
-):
-    owner_id, _owner_email = require_auth_owner(authorization, auth_cookie)
-    user = owner_profile_context(owner_id)
+@router.get("/api/auth/profile")
+def auth_profile(current_user: tuple[int, str] = Depends(get_current_user)):
+    owner_id, _owner_email = current_user
+    user = load_owner_profile(owner_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return {"ok": True, "user": user}
 
 
+@router.post("/api/auth/password-reset-request")
 def auth_password_reset_request(payload: AuthPasswordResetRequestIn, request: Request):
     email = payload.email.strip().lower()
     email_bucket = hashlib.sha256(email.encode("utf-8")).hexdigest()[:16]
@@ -175,7 +205,7 @@ def auth_password_reset_request(payload: AuthPasswordResetRequestIn, request: Re
                     if row:
                         reset_token = secrets.token_urlsafe(32)
                         reset_url = (
-                            f"{FRONTEND_PUBLIC_URL}/reset-password?"
+                            f"{settings.frontend_public_url.rstrip('/')}/reset-password?"
                             + urllib.parse.urlencode({"email": email, "token": reset_token})
                         )
                         cursor.execute(
@@ -183,24 +213,21 @@ def auth_password_reset_request(payload: AuthPasswordResetRequestIn, request: Re
                             INSERT INTO password_reset_tokens (email, token_hash, expires_at)
                             VALUES (%s, %s, DATE_ADD(UTC_TIMESTAMP(), INTERVAL %s MINUTE))
                             """,
-                            (email, token_hash(reset_token), PASSWORD_RESET_TOKEN_TTL_MINUTES),
+                            (email, token_hash(reset_token), settings.password_reset_token_ttl_minutes),
                         )
                         reset_token_id = cursor.lastrowid
                         conn.commit()
                         try:
                             send_password_reset_email(email, reset_url)
-                        except Exception as exc:
+                        except Exception:
                             cursor.execute(
                                 "UPDATE password_reset_tokens SET used_at = UTC_TIMESTAMP() WHERE id = %s",
                                 (reset_token_id,),
                             )
                             conn.commit()
-                            logger.exception("Password reset email delivery failed: %s", exc)
                     conn.commit()
-        except Exception as exc:
-            logger.exception("Password reset request failed: %s", exc)
-    else:
-        logger.info("Password reset request received, but SMTP is not configured.")
+        except Exception:
+            pass
 
     return {
         "ok": True,
@@ -208,6 +235,7 @@ def auth_password_reset_request(payload: AuthPasswordResetRequestIn, request: Re
     }
 
 
+@router.post("/api/auth/password-reset-confirm")
 def auth_password_reset_confirm(payload: AuthPasswordResetConfirmIn, request: Request):
     email = payload.email.strip().lower()
     email_bucket = hashlib.sha256(email.encode("utf-8")).hexdigest()[:16]
@@ -254,12 +282,9 @@ def auth_password_reset_confirm(payload: AuthPasswordResetConfirmIn, request: Re
     return {"ok": True, "message": "Password has been reset"}
 
 
-def auth_profile_update(
-    payload: AuthProfileUpdateIn,
-    authorization: str | None = Header(default=None),
-    auth_cookie: str | None = Cookie(default=None, alias=AUTH_COOKIE_NAME),
-):
-    owner_id, _owner_email = require_auth_owner(authorization, auth_cookie)
+@router.post("/api/auth/profile")
+def auth_profile_update(payload: AuthProfileUpdateIn, current_user: tuple[int, str] = Depends(get_current_user)):
+    owner_id, _owner_email = current_user
 
     updates: list[str] = []
     values: list[Any] = []
@@ -331,18 +356,3 @@ def auth_profile_update(
         raise_public_error(503, "Could not update profile", "Profile update failed", exc)
 
     return {"ok": True, "user": user_row_to_payload(row)}
-
-
-def create_router(core) -> APIRouter:
-    _bind_core(core)
-    _resolve_route_types(auth_signup, auth_login, auth_logout, auth_csrf, auth_profile, auth_password_reset_request, auth_password_reset_confirm, auth_profile_update)
-    router = APIRouter()
-    router.add_api_route('/api/auth/signup', auth_signup, methods=['POST'])
-    router.add_api_route('/api/auth/login', auth_login, methods=['POST'])
-    router.add_api_route('/api/auth/logout', auth_logout, methods=['POST'])
-    router.add_api_route('/api/auth/csrf', auth_csrf, methods=['GET'])
-    router.add_api_route('/api/auth/profile', auth_profile, methods=['GET'])
-    router.add_api_route('/api/auth/profile', auth_profile_update, methods=['POST'])
-    router.add_api_route('/api/auth/password-reset-request', auth_password_reset_request, methods=['POST'])
-    router.add_api_route('/api/auth/password-reset-confirm', auth_password_reset_confirm, methods=['POST'])
-    return router
