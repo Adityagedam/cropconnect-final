@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import get_type_hints
 
-from fastapi import APIRouter, Cookie, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Cookie, Header, HTTPException, Query, Request, Response
 
 AUTH_COOKIE_NAME = "cropconnect_auth"
 

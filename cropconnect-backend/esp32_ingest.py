@@ -12,16 +12,14 @@ from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from email.message import EmailMessage
-from email.utils import parseaddr
 from typing import Any
 from urllib.parse import urlparse
 
 import mysql.connector
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
-from pydantic import BaseModel, Field, field_validator
 
 from db import migrations as db_migrations
 from db.connections import configure_connections, get_connection, get_farmers_connection, get_server_connection
@@ -36,6 +34,29 @@ from db_utils import (
 )
 from http_client import request_json
 from logging_config import configure_logging
+from models import (
+    TRANSLATION_BATCH_LIMIT,
+    TRANSLATION_TEXT_LIMIT,
+    TRANSLATION_TOTAL_CHAR_LIMIT,
+    AIOrchestrateIn,
+    AuthLoginIn,
+    AuthPasswordResetConfirmIn,
+    AuthPasswordResetRequestIn,
+    AuthProfileUpdateIn,
+    AuthSignupIn,
+    ChatIn,
+    CropRecommendIn,
+    DashboardSnapshotIn,
+    EmailValidatedModel,
+    EnquiryIn,
+    MarketInsightIn,
+    PumpStateSaveIn,
+    PumpTimersSaveIn,
+    RelayStatusIn,
+    TelemetryIn,
+    TranslateIn,
+    validate_email_text,
+)
 from pump_control import PumpStateIn, relay_command_text
 from routers import ai as ai_router
 from routers import auth as auth_router
@@ -50,10 +71,9 @@ from security_crypto import (
     encrypt_text,
     hash_password,
     require_data_secret,
-    sign_auth_token,
-    verify_auth_token,
     verify_password,
 )
+from services import auth as auth_service
 
 CORE_EXPORTS = (
     mysql,
@@ -70,6 +90,30 @@ CORE_EXPORTS = (
     PumpStateIn,
     relay_command_text,
     re,
+)
+
+MODEL_EXPORTS = (
+    AIOrchestrateIn,
+    AuthLoginIn,
+    AuthPasswordResetConfirmIn,
+    AuthPasswordResetRequestIn,
+    AuthProfileUpdateIn,
+    AuthSignupIn,
+    ChatIn,
+    CropRecommendIn,
+    DashboardSnapshotIn,
+    EmailValidatedModel,
+    EnquiryIn,
+    MarketInsightIn,
+    PumpStateSaveIn,
+    PumpTimersSaveIn,
+    RelayStatusIn,
+    TelemetryIn,
+    TranslateIn,
+    TRANSLATION_BATCH_LIMIT,
+    TRANSLATION_TEXT_LIMIT,
+    TRANSLATION_TOTAL_CHAR_LIMIT,
+    validate_email_text,
 )
 
 load_dotenv()
@@ -122,9 +166,6 @@ PUBLIC_LANDING_SENSOR_DEVICE_ID = env("PUBLIC_LANDING_SENSOR_DEVICE_ID", "").str
 PUBLIC_TRANSLATION_ENABLED = env("PUBLIC_TRANSLATION_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
 QUERY_API_KEY_ENABLED = env("QUERY_API_KEY_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
 ESP32_GET_WRITE_ENABLED = env("ESP32_GET_WRITE_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
-TRANSLATION_TEXT_LIMIT = 1000
-TRANSLATION_BATCH_LIMIT = 40
-TRANSLATION_TOTAL_CHAR_LIMIT = 12000
 PASSWORD_RESET_TOKEN_TTL_MINUTES = int(env("PASSWORD_RESET_TOKEN_TTL_MINUTES", "30"))
 FRONTEND_PUBLIC_URL = env("FRONTEND_PUBLIC_URL", "https://cropconnect01.vercel.app").rstrip("/")
 AUTH_COOKIE_NAME = "cropconnect_auth"
@@ -310,234 +351,6 @@ app.add_middleware(
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-API-Key", "X-CSRF-Token"],
 )
-
-
-def validate_email_text(value: Any) -> str:
-    text = str(value or "").strip().lower()
-    _name, parsed_email = parseaddr(text)
-    local_part, separator, domain = parsed_email.partition("@")
-    if (
-        parsed_email != text
-        or not separator
-        or not local_part
-        or not domain
-        or any(char.isspace() for char in parsed_email)
-        or "." not in domain
-        or domain.startswith(".")
-        or domain.endswith(".")
-        or len(parsed_email) > 254
-    ):
-        raise ValueError("Enter a valid email address")
-    return parsed_email
-
-
-class EmailValidatedModel(BaseModel):
-    @field_validator("email", mode="before", check_fields=False)
-    @classmethod
-    def validate_email_field(cls, value: Any) -> Any:
-        if value is None or value == "":
-            return value
-        return validate_email_text(value)
-
-
-class TelemetryIn(BaseModel):
-    device_id: str = Field(min_length=1, max_length=80)
-    soil_moisture: float | None = Field(default=None, ge=0, le=100)
-    humidity: float | None = Field(default=None, ge=0, le=100)
-    temperature: float | None = Field(default=None, ge=-20, le=80)
-    ph: float | None = Field(default=None, ge=0, le=14)
-    nitrogen: float | None = Field(default=None, ge=0)
-    phosphorus: float | None = Field(default=None, ge=0)
-    potassium: float | None = Field(default=None, ge=0)
-
-
-class EnquiryIn(EmailValidatedModel):
-    name: str = Field(min_length=1, max_length=120)
-    email: str = Field(min_length=3, max_length=254)
-    phone: str | None = Field(default="", max_length=40)
-    organization: str | None = Field(default="", max_length=160)
-    message: str = Field(min_length=1, max_length=4000)
-
-
-class ChatIn(EmailValidatedModel):
-    user_id: int | None = Field(default=None, ge=1)
-    email: str | None = Field(default=None, max_length=255)
-    message: str = Field(min_length=1, max_length=2000)
-    language: str = Field(default="en", max_length=16)
-    input_language: str = Field(default="en", max_length=16)
-    device_id: str | None = Field(default="", max_length=80)
-    sensor_data: dict[str, Any] = Field(default_factory=dict)
-    market_data: dict[str, Any] = Field(default_factory=dict)
-    weather_data: dict[str, Any] = Field(default_factory=dict)
-    location: str | None = Field(default="", max_length=160)
-    history: list[dict[str, str]] = Field(default_factory=list, max_length=12)
-
-
-class AuthSignupIn(EmailValidatedModel):
-    name: str = Field(min_length=1, max_length=120)
-    email: str = Field(min_length=3, max_length=255)
-    password: str = Field(min_length=8, max_length=255)
-    phone: str | None = Field(default="", max_length=30)
-    state: str | None = Field(default="", max_length=120)
-    location: str | None = Field(default="", max_length=255)
-    land_size: float | None = Field(default=None, ge=0)
-    location_type: str | None = Field(default="city", max_length=20)
-    district: str | None = Field(default="", max_length=120)
-    city: str | None = Field(default="", max_length=120)
-    village: str | None = Field(default="", max_length=120)
-    sensors: str | None = Field(default="0", max_length=20)
-    pumps: str | None = Field(default="0", max_length=20)
-    sensor_setup_complete: bool = False
-    sensor_setup_status: str | None = Field(default="pending", max_length=40)
-
-
-class AuthLoginIn(EmailValidatedModel):
-    email: str = Field(min_length=3, max_length=255)
-    password: str = Field(min_length=8, max_length=255)
-
-
-class AuthPasswordResetRequestIn(EmailValidatedModel):
-    email: str = Field(min_length=3, max_length=255)
-
-
-class AuthPasswordResetConfirmIn(EmailValidatedModel):
-    email: str = Field(min_length=3, max_length=255)
-    token: str = Field(min_length=20, max_length=255)
-    password: str = Field(min_length=8, max_length=255)
-
-
-class AuthProfileUpdateIn(EmailValidatedModel):
-    user_id: int | None = Field(default=None, ge=1)
-    email: str | None = Field(default=None, max_length=255)
-    name: str | None = Field(default=None, max_length=120)
-    phone: str | None = Field(default=None, max_length=30)
-    state: str | None = Field(default=None, max_length=120)
-    location: str | None = Field(default=None, max_length=255)
-    land_size: float | None = Field(default=None, ge=0)
-    location_type: str | None = Field(default=None, max_length=20)
-    district: str | None = Field(default=None, max_length=120)
-    city: str | None = Field(default=None, max_length=120)
-    village: str | None = Field(default=None, max_length=120)
-    sensor_device_id: str | None = Field(default=None, max_length=80)
-    sensors: str | None = Field(default=None, max_length=20)
-    pumps: str | None = Field(default=None, max_length=20)
-    sensor_setup_complete: bool | None = None
-    sensor_setup_status: str | None = Field(default=None, max_length=40)
-
-
-class PumpStateSaveIn(EmailValidatedModel):
-    user_id: int | None = Field(default=None, ge=1)
-    email: str | None = Field(default=None, max_length=255)
-    device_id: str | None = Field(default="", max_length=80)
-    pump_id: str = Field(min_length=1, max_length=40)
-    on: bool
-    runtime: int | None = Field(default=0, ge=0)
-    schedule: dict[str, Any] = Field(default_factory=dict)
-    sent_to_esp32: bool = False
-    message: str | None = Field(default="", max_length=255)
-
-
-class RelayStatusIn(BaseModel):
-    device_id: str = Field(min_length=1, max_length=80)
-    relays: dict[str, bool] = Field(default_factory=dict)
-
-
-class PumpTimersSaveIn(EmailValidatedModel):
-    user_id: int | None = Field(default=None, ge=1)
-    email: str | None = Field(default=None, max_length=255)
-    timers: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
-
-
-class TranslateIn(BaseModel):
-    text: str | None = Field(default=None, max_length=TRANSLATION_TEXT_LIMIT)
-    texts: list[str] | None = Field(default=None, max_length=TRANSLATION_BATCH_LIMIT)
-    target_lang: str = Field(min_length=2, max_length=40)
-
-    @field_validator("texts")
-    @classmethod
-    def validate_text_items(cls, value: list[str] | None) -> list[str] | None:
-        if value is None:
-            return value
-        total_characters = 0
-        normalized_items: list[str] = []
-        for item in value:
-            text = str(item or "")
-            if len(text) > TRANSLATION_TEXT_LIMIT:
-                raise ValueError(f"Each translation item must be {TRANSLATION_TEXT_LIMIT} characters or fewer")
-            total_characters += len(text)
-            normalized_items.append(text)
-        if total_characters > TRANSLATION_TOTAL_CHAR_LIMIT:
-            raise ValueError(f"Translation batch must be {TRANSLATION_TOTAL_CHAR_LIMIT} characters or fewer")
-        return normalized_items
-
-
-class CropRecommendIn(BaseModel):
-    goal: str = Field(default="balanced", max_length=40)
-    season: str | None = Field(default="", max_length=80)
-    language: str | None = Field(default="en", max_length=20)
-    device_id: str | None = Field(default="", max_length=80)
-    sensor_source: str | None = Field(default="", max_length=40)
-
-
-class MarketInsightIn(BaseModel):
-    language: str | None = Field(default="en", max_length=20)
-    objective: str = Field(default="Give practical selling guidance from live local mandi records", max_length=300)
-
-
-class AIOrchestrateIn(EmailValidatedModel):
-    user_id: int | None = Field(default=None, ge=1)
-    email: str | None = Field(default=None, max_length=255)
-    location: str | None = Field(default="", max_length=160)
-    language: str | None = Field(default="en", max_length=20)
-    sensor_data: dict[str, Any] = Field(default_factory=dict)
-    pump_data: dict[str, Any] = Field(default_factory=dict)
-    timers: dict[str, Any] = Field(default_factory=dict)
-    weather_data: dict[str, Any] | None = Field(default=None)
-    market_data: dict[str, Any] | None = Field(default=None)
-    objective: str = Field(default="Optimize farm health and irrigation decisions", max_length=500)
-
-
-class DashboardSnapshotIn(EmailValidatedModel):
-    user_id: int | None = Field(default=None, ge=1)
-    email: str | None = Field(default=None, max_length=255)
-    device_id: str | None = Field(default="", max_length=80)
-    source: str | None = Field(default="dashboard", max_length=40)
-    sensor_data: dict[str, Any] = Field(default_factory=dict)
-    pump_data: dict[str, Any] = Field(default_factory=dict)
-    timers: dict[str, Any] = Field(default_factory=dict)
-    weather_data: dict[str, Any] | None = Field(default=None)
-    market_data: dict[str, Any] | None = Field(default=None)
-    telemetry_packet: dict[str, Any] = Field(default_factory=dict)
-
-
-def user_row_to_payload(row: dict[str, Any]) -> dict[str, Any]:
-    email = row["email"]
-    name = decrypt_text(row.get("name")) or email.split("@")[0]
-    phone = decrypt_text(row.get("phone")) or ""
-    state = decrypt_text(row.get("state")) or ""
-    location = decrypt_text(row.get("location")) or ""
-    location_type = row.get("location_type") or "city"
-    district = decrypt_text(row.get("district")) or ""
-    city = decrypt_text(row.get("city")) or (location if location_type == "city" else "")
-    village = decrypt_text(row.get("village")) or (location if location_type == "village" else "")
-    return {
-        "id": row["id"],
-        "name": name,
-        "email": email,
-        "phone": phone,
-        "state": state,
-        "location": location,
-        "locationType": location_type,
-        "district": district,
-        "city": city,
-        "village": village,
-        "landSize": decimal_to_float(row.get("land size")),
-        "sensorDeviceId": row.get("sensor_device_id") or "",
-        "sensors": row.get("sensors") or "0",
-        "pumps": row.get("pumps") or "0",
-        "sensorSetupComplete": bool(row.get("sensor_setup_complete")),
-        "sensorSetupStatus": row.get("sensor_setup_status") or "pending",
-    }
 
 
 def generate_esp32_api_key() -> str:
@@ -807,98 +620,6 @@ def decimal_to_float(value: Any) -> Any:
 
 def json_text(value: Any) -> str:
     return json.dumps(value if value is not None else {}, ensure_ascii=False)
-
-
-def set_auth_cookie(response: Response, token: str) -> str:
-    csrf_token = secrets.token_urlsafe(32)
-    response.set_cookie(
-        key=AUTH_COOKIE_NAME,
-        value=token,
-        max_age=AUTH_COOKIE_MAX_AGE_SECONDS,
-        httponly=True,
-        secure=AUTH_COOKIE_SECURE,
-        samesite=AUTH_COOKIE_SAMESITE,
-        path="/",
-    )
-    set_csrf_cookie(response, csrf_token)
-    return csrf_token
-
-
-def set_csrf_cookie(response: Response, csrf_token: str) -> None:
-    response.set_cookie(
-        key=CSRF_COOKIE_NAME,
-        value=csrf_token,
-        max_age=AUTH_COOKIE_MAX_AGE_SECONDS,
-        httponly=False,
-        secure=AUTH_COOKIE_SECURE,
-        samesite=AUTH_COOKIE_SAMESITE,
-        path="/",
-    )
-
-
-def clear_auth_cookie(response: Response) -> None:
-    response.delete_cookie(
-        key=AUTH_COOKIE_NAME,
-        httponly=True,
-        secure=AUTH_COOKIE_SECURE,
-        samesite=AUTH_COOKIE_SAMESITE,
-        path="/",
-    )
-    response.delete_cookie(
-        key=CSRF_COOKIE_NAME,
-        secure=AUTH_COOKIE_SECURE,
-        samesite=AUTH_COOKIE_SAMESITE,
-        path="/",
-    )
-
-
-def auth_token_from_request(authorization: str | None, auth_cookie: str | None) -> str:
-    if auth_cookie:
-        return auth_cookie.strip()
-    if authorization and authorization.lower().startswith("bearer "):
-        return authorization.split(" ", 1)[1].strip()
-    return ""
-
-
-def require_auth_owner(authorization: str | None, auth_cookie: str | None = None) -> tuple[int, str]:
-    token = auth_token_from_request(authorization, auth_cookie)
-    if not token:
-        raise HTTPException(status_code=401, detail="Login token is required")
-
-    payload = verify_auth_token(token)
-    if not payload:
-        raise HTTPException(status_code=401, detail="Login token is invalid or expired")
-
-    try:
-        user_id = int(payload.get("user_id") or 0)
-    except (TypeError, ValueError):
-        user_id = 0
-    email = str(payload.get("email") or "").strip().lower()
-
-    if user_id < 1 or not email:
-        raise HTTPException(status_code=401, detail="Login token is missing account ownership")
-    return user_id, email
-
-
-def require_sensor_read_access(
-    device_id: str,
-    authorization: str | None,
-    auth_cookie: str | None = None,
-    x_api_key: str | None = None,
-    api_key: str | None = None,
-) -> None:
-    if api_key_matches(x_api_key, api_key, device_id):
-        return
-
-    owner_id, _owner_email = require_auth_owner(authorization, auth_cookie)
-    owner_profile = owner_profile_context(owner_id)
-    owner_device_id = str(owner_profile.get("sensorDeviceId") or "").strip()
-    if not owner_device_id or owner_device_id != device_id:
-        raise HTTPException(status_code=403, detail="Sensor device does not belong to this account")
-
-
-def auth_token_for_user(user: dict[str, Any]) -> str:
-    return sign_auth_token({"user_id": user["id"], "email": user["email"]})
 
 
 def generate_sensor_device_id() -> str:
@@ -1238,6 +959,14 @@ user_market_location = market_router.user_market_location
 live_market_context_for_profile = market_router.live_market_context_for_profile
 build_market_insight_messages = market_router.build_market_insight_messages
 normalize_market_insight_payload = market_router.normalize_market_insight_payload
+user_row_to_payload = auth_service.user_row_to_payload
+set_auth_cookie = auth_service.set_auth_cookie
+set_csrf_cookie = auth_service.set_csrf_cookie
+clear_auth_cookie = auth_service.clear_auth_cookie
+auth_token_from_request = auth_service.auth_token_from_request
+require_auth_owner = auth_service.require_auth_owner
+require_sensor_read_access = auth_service.require_sensor_read_access
+auth_token_for_user = auth_service.auth_token_for_user
 reading_to_sensor_list = sensors_router.reading_to_sensor_list
 latest_sensor_context = sensors_router.latest_sensor_context
 insert_telemetry_reading = sensors_router.insert_telemetry_reading
@@ -1259,6 +988,7 @@ root = public_router.root
 
 def register_routers() -> None:
     core = sys.modules[__name__]
+    auth_service._bind_core(core)
     market_router._bind_core(core)
     weather_router._bind_core(core)
     app.include_router(public_router.create_router(core))

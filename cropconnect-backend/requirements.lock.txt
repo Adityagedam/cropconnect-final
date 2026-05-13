@@ -14,8 +14,10 @@ idna==3.14
 mysql-connector-python==9.1.0
 pycparser==3.0
 pydantic==2.10.4
+pydantic-settings==2.7.1
 pydantic_core==2.27.2
 python-dotenv==1.0.1
+pytest==8.3.4
 PyYAML==6.0.3
 starlette==0.41.3
 typing_extensions==4.15.0

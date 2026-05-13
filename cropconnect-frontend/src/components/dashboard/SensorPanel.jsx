@@ -53,8 +53,32 @@ const SensorCard = ({ colors, icon: Icon, title, value, unit, color, min, max, b
   );
 };
 
-const SensorPanel = ({ colors, sensorConnection = {}, sensorData = {}, userData = {} }) => (
-  <div className="space-y-6">
+const SensorSkeleton = () => (
+  <div className="space-y-6" aria-label="Loading sensor data">
+    <div className="h-24 rounded-xl border border-[#e8e3d8] bg-white p-4 shadow-sm">
+      <div className="h-4 w-40 animate-pulse rounded bg-slate-200" />
+      <div className="mt-3 h-3 w-64 max-w-full animate-pulse rounded bg-slate-100" />
+    </div>
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {Array.from({ length: 6 }).map((_, index) => (
+        <div key={index} className="h-36 rounded-xl border border-[#e8e3d8] bg-white p-4 shadow-sm">
+          <div className="h-4 w-28 animate-pulse rounded bg-slate-200" />
+          <div className="mt-6 h-8 w-20 animate-pulse rounded bg-slate-100" />
+          <div className="mt-6 h-2 w-full animate-pulse rounded bg-slate-100" />
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
+const SensorPanel = ({ colors, sensorConnection = {}, sensorData = {}, userData = {} }) => {
+  const hasAnyReading = Object.values(sensorData || {}).some(isPresent);
+  if (!hasAnyReading && !sensorConnection.error && sensorConnection.source !== "esp32") {
+    return <SensorSkeleton />;
+  }
+
+  return (
+    <div className="space-y-6">
     <div className="p-4 rounded-xl border border-[#d5d1c5] bg-[#f7f5ef] shadow-sm">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
@@ -120,7 +144,8 @@ const SensorPanel = ({ colors, sensorConnection = {}, sensorData = {}, userData 
         </tbody>
       </table>
     </div>
-  </div>
-);
+    </div>
+  );
+};
 
 export default SensorPanel;

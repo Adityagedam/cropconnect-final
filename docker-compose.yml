@@ -44,7 +44,7 @@ services:
     command: >
       sh -c "pip install --no-cache-dir -r requirements.txt &&
              python migrate_db.py &&
-             uvicorn esp32_ingest:app --host 0.0.0.0 --port 8001"
+             uvicorn app:app --host 0.0.0.0 --port 8001"
     ports:
       - "8001:8001"
     depends_on:

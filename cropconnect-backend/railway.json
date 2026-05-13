@@ -1,7 +1,7 @@
 {
   "$schema": "https://railway.app/railway.schema.json",
   "deploy": {
-    "startCommand": "python migrate_db.py && python esp32_ingest.py",
+    "startCommand": "python migrate_db.py && uvicorn app:app --host 0.0.0.0 --port ${PORT:-8001}",
     "healthcheckPath": "/api/health",
     "healthcheckTimeout": 30
   }
