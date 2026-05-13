@@ -10,36 +10,50 @@ from pydantic import ValidationError
 os.environ.setdefault("CROP_DATA_SECRET_KEY", "test-data-secret-for-unit-tests")
 os.environ.setdefault("CROP_AUTH_TOKEN_SECRET", "test-auth-secret-for-unit-tests")
 
-import esp32_ingest as api  # noqa: E402
 from crop_ai_agent import (  # noqa: E402
     build_crop_recommendation_messages,
     has_core_sensor_context,
     missing_crop_readings,
 )
+from db_utils import quote_identifier  # noqa: E402
+from http_client import request_json  # noqa: E402
+from models import TRANSLATION_BATCH_LIMIT, TRANSLATION_TEXT_LIMIT, AuthLoginIn, TranslateIn  # noqa: E402
 from pump_control import relay_command_text, relay_status_payload  # noqa: E402
+from routers.weather import weather_code_condition  # noqa: E402
+from services.ai_service import parse_ai_json  # noqa: E402
+from services.market_service import (  # noqa: E402
+    market_payload_from_records,
+    normalize_market_insight_payload,
+    normalize_market_record,
+    user_market_location,
+)
+from services.sensor_service import reading_to_sensor_list  # noqa: E402
+
+USER_TABLE = "users"
+LEGACY_USER_TABLE = "sign-in"
 
 
 class BackendCoreBehaviourTests(unittest.TestCase):
     def test_email_validation_normalizes_and_rejects_bad_values(self):
-        payload = api.AuthLoginIn(email=" Farmer@Example.COM ", password="strong-pass")
+        payload = AuthLoginIn(email=" Farmer@Example.COM ", password="strong-pass")
         self.assertEqual(payload.email, "farmer@example.com")
 
         with self.assertRaises(ValidationError):
-            api.AuthLoginIn(email="not-an-email", password="strong-pass")
+            AuthLoginIn(email="not-an-email", password="strong-pass")
 
     def test_translation_payload_limits_are_enforced(self):
-        valid = api.TranslateIn(texts=["Hello"], target_lang="hi")
+        valid = TranslateIn(texts=["Hello"], target_lang="hi")
         self.assertEqual(valid.texts, ["Hello"])
 
         with self.assertRaises(ValidationError):
-            api.TranslateIn(texts=["x" * (api.TRANSLATION_TEXT_LIMIT + 1)], target_lang="hi")
+            TranslateIn(texts=["x" * (TRANSLATION_TEXT_LIMIT + 1)], target_lang="hi")
 
         with self.assertRaises(ValidationError):
-            api.TranslateIn(texts=["x"] * (api.TRANSLATION_BATCH_LIMIT + 1), target_lang="hi")
+            TranslateIn(texts=["x"] * (TRANSLATION_BATCH_LIMIT + 1), target_lang="hi")
 
     def test_ai_json_parser_accepts_fenced_json_without_extra_text(self):
-        self.assertEqual(api.parse_ai_json('```json\n{"crops":[],"summary":"ok"}\n```'), {"crops": [], "summary": "ok"})
-        self.assertEqual(api.parse_ai_json('AI said: [{"name":"wheat"}] done'), [{"name": "wheat"}])
+        self.assertEqual(parse_ai_json('```json\n{"crops":[],"summary":"ok"}\n```'), {"crops": [], "summary": "ok"})
+        self.assertEqual(parse_ai_json('AI said: [{"name":"wheat"}] done'), [{"name": "wheat"}])
 
     def test_sensor_rows_drop_missing_values_without_turning_them_to_zero(self):
         row = {
@@ -54,7 +68,7 @@ class BackendCoreBehaviourTests(unittest.TestCase):
             "recorded_at": datetime(2026, 5, 12, 8, 30, tzinfo=timezone.utc),
         }
 
-        readings = api.reading_to_sensor_list(row)
+        readings = reading_to_sensor_list(row)
         self.assertEqual([reading["sensor_type"] for reading in readings], ["soil_moisture", "temperature", "ph"])
         self.assertEqual(readings[0]["value"], 42.5)
         self.assertTrue(readings[0]["recorded_at"].startswith("2026-05-12T08:30:00"))
@@ -81,8 +95,8 @@ class BackendCoreBehaviourTests(unittest.TestCase):
         self.assertIn('"soil_moisture": 42', messages[1]["content"])
 
     def test_weather_code_mapping_uses_unknown_marker_for_missing_data(self):
-        self.assertEqual(api.weather_code_condition(61)["condition"], "Rain")
-        self.assertEqual(api.weather_code_condition(None)["condition"], "--")
+        self.assertEqual(weather_code_condition(61)["condition"], "Rain")
+        self.assertEqual(weather_code_condition(None)["condition"], "--")
 
     def test_market_records_normalize_data_gov_price_rows(self):
         row = {
@@ -98,7 +112,7 @@ class BackendCoreBehaviourTests(unittest.TestCase):
             "Modal_Price": "1500",
         }
 
-        normalized = api.normalize_market_record(row)
+        normalized = normalize_market_record(row)
 
         self.assertEqual(normalized["state"], "Maharashtra")
         self.assertEqual(normalized["district"], "Pune")
@@ -108,7 +122,7 @@ class BackendCoreBehaviourTests(unittest.TestCase):
         self.assertEqual(normalized["modalPrice"], 1500)
 
     def test_market_payload_groups_mandi_records_without_fake_prices(self):
-        payload = api.market_payload_from_records(
+        payload = market_payload_from_records(
             [
                 {
                     "state": "Maharashtra",
@@ -134,7 +148,7 @@ class BackendCoreBehaviourTests(unittest.TestCase):
         self.assertEqual(payload["mandis"][0]["commodities"][0]["commodity"], "Tomato")
 
     def test_market_ai_insight_payload_is_sanitized(self):
-        payload = api.normalize_market_insight_payload(
+        payload = normalize_market_insight_payload(
             {
                 "summary": "Hold if quality is good.",
                 "recommendations": [
@@ -154,7 +168,7 @@ class BackendCoreBehaviourTests(unittest.TestCase):
         self.assertEqual(payload["watch"], ["Arrival date freshness"])
 
     def test_market_location_prefers_profile_district(self):
-        state, district, requested_location = api.user_market_location(
+        state, district, requested_location = user_market_location(
             {
                 "state": "Maharashtra",
                 "district": "Pune",
@@ -168,12 +182,12 @@ class BackendCoreBehaviourTests(unittest.TestCase):
         self.assertEqual(requested_location, "Baramati, Pune, Maharashtra")
 
     def test_farmers_user_table_names_avoid_hyphen_footgun(self):
-        self.assertEqual(api.USER_TABLE, "users")
-        self.assertEqual(api.LEGACY_USER_TABLE, "sign-in")
-        self.assertEqual(api.quote_identifier("users"), "`users`")
+        self.assertEqual(USER_TABLE, "users")
+        self.assertEqual(LEGACY_USER_TABLE, "sign-in")
+        self.assertEqual(quote_identifier("users"), "`users`")
 
         with self.assertRaises(ValueError):
-            api.quote_identifier("users; DROP TABLE users")
+            quote_identifier("users; DROP TABLE users")
 
     def test_relay_command_text_uses_explicit_db_states(self):
         command = relay_command_text({1: True, 2: False, 8: True})
@@ -204,7 +218,7 @@ class BackendCoreBehaviourTests(unittest.TestCase):
             return FakeResponse()
 
         with patch("http_client.urllib.request.urlopen", side_effect=fake_urlopen), patch("http_client.time.sleep"):
-            self.assertEqual(api.request_json("https://example.test", attempts=2), {"ok": True})
+            self.assertEqual(request_json("https://example.test", attempts=2), {"ok": True})
 
         self.assertEqual(calls["count"], 2)
 

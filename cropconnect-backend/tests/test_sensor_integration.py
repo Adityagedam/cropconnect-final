@@ -1,12 +1,12 @@
 # Pytest integration coverage for sensor ingest and latest-read flow with mocked DB connections.
 from fastapi.testclient import TestClient
 
-import esp32_ingest as api
+from app import app
 from routers import sensors as sensor_routes
 
 
 def test_sensor_ingest_and_latest_sensor_read(fake_db, monkeypatch):
-    client = TestClient(api.app)
+    client = TestClient(app)
     device_id = "ccdev_pytest"
 
     def accept_test_key(x_api_key, api_key=None, device_id=None):

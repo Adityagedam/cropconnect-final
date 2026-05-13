@@ -1,11 +1,13 @@
 # Pytest integration coverage for the auth profile flow with mocked DB connections.
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-import esp32_ingest as api
+from app import app
+from services.rate_limit import rate_limit_named_key
 
 
 def test_signup_login_and_profile_fetch(fake_db):
-    client = TestClient(api.app)
+    client = TestClient(app)
     payload = {
         "name": "Test Farmer",
         "email": "farmer@example.com",
@@ -30,7 +32,7 @@ def test_signup_login_and_profile_fetch(fake_db):
 
 
 def test_duplicate_signup_returns_409(fake_db):
-    client = TestClient(api.app)
+    client = TestClient(app)
     payload = {
         "name": "Test Farmer",
         "email": "farmer@example.com",
@@ -47,10 +49,10 @@ def test_duplicate_signup_returns_409(fake_db):
 
 
 def test_rate_limit_enforcement(fake_db):
-    api.rate_limit_named_key("pytest", "client", limit=1, window_seconds=60)
+    rate_limit_named_key("pytest", "client", limit=1, window_seconds=60)
     try:
-        api.rate_limit_named_key("pytest", "client", limit=1, window_seconds=60)
-    except api.HTTPException as exc:
+        rate_limit_named_key("pytest", "client", limit=1, window_seconds=60)
+    except HTTPException as exc:
         assert exc.status_code == 429
     else:
         raise AssertionError("Expected rate limiter to reject the second request")

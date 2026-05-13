@@ -225,7 +225,6 @@ export default function Dashboard() {
     () => localStorage.getItem("cropconnect-theme") || "light"
   );
   const [activePage, setActivePage] = useState("dashboard");
-  const [apiLogs, setApiLogs] = useState([]);
   const speechSentRef = useRef(false);
   const logContainerRef = useRef(null);
   const chatContainerRef = useRef(null);
@@ -270,6 +269,7 @@ export default function Dashboard() {
     sensorConnection,
     setSensorConnection,
     telemetryPacket,
+    apiLogs,
     applyBackendReadings,
   } = useSensorData({
     protectedFetch,

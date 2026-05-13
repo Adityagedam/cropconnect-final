@@ -26,6 +26,19 @@ export function useSensorData({ protectedFetch, sensorDeviceId, pollIntervalMs }
     error: null,
   });
   const [telemetryPacket, setTelemetryPacket] = useState({});
+  const [apiLogs, setApiLogs] = useState([]);
+
+  const addApiLog = useCallback((type, message) => {
+    setApiLogs((prev) => [
+      ...prev.slice(-49),
+      {
+        id: Date.now(),
+        type,
+        message,
+        timestamp: new Date().toLocaleTimeString(),
+      },
+    ]);
+  }, []);
 
   const applyBackendReadings = useCallback((payload) => {
     const readings = Array.isArray(payload?.readings) ? payload.readings : [];
@@ -97,6 +110,7 @@ export function useSensorData({ protectedFetch, sensorDeviceId, pollIntervalMs }
           deviceId: "",
           error: "No sensor device configured",
         }));
+        addApiLog("warning", "No sensor device configured");
         return;
       }
 
@@ -114,16 +128,20 @@ export function useSensorData({ protectedFetch, sensorDeviceId, pollIntervalMs }
         if (!applied) {
           const errorMessage = payload?.message || "Waiting for ESP32 readings";
           console.warn("ESP32 sensor payload not applied:", payload);
+          addApiLog("warning", errorMessage);
           setSensorConnection((prev) => ({
             ...prev,
             source: "unavailable",
             deviceId: primaryDeviceId,
             error: errorMessage,
           }));
+        } else {
+          addApiLog("success", `Loaded latest ESP32 readings for ${primaryDeviceId}`);
         }
       } catch (error) {
         if (!cancelled) {
           console.error("Failed to load latest ESP32 readings:", error);
+          addApiLog("error", error.message || "Failed to load latest ESP32 readings");
           setSensorData(initialSensorData);
           setSensorConnection((prev) => ({
             ...prev,
@@ -140,7 +158,7 @@ export function useSensorData({ protectedFetch, sensorDeviceId, pollIntervalMs }
       cancelled = true;
       clearInterval(interval);
     };
-  }, [applyBackendReadings, pollIntervalMs, protectedFetch, sensorDeviceId]);
+  }, [addApiLog, applyBackendReadings, pollIntervalMs, protectedFetch, sensorDeviceId]);
 
   useEffect(() => {
     setTelemetryPacket({
@@ -163,6 +181,8 @@ export function useSensorData({ protectedFetch, sensorDeviceId, pollIntervalMs }
     sensorConnection,
     setSensorConnection,
     telemetryPacket,
+    apiLogs,
+    setApiLogs,
     applyBackendReadings,
   };
 }

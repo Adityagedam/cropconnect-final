@@ -3,16 +3,18 @@ import time
 import unittest
 from unittest.mock import patch
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from mysql.connector import IntegrityError
 
 os.environ.setdefault("CROP_DATA_SECRET_KEY", "test-data-secret-for-unit-tests")
 os.environ.setdefault("CROP_AUTH_TOKEN_SECRET", "test-auth-secret-for-unit-tests")
 
-import esp32_ingest as api  # noqa: E402
 import security_crypto as crypto  # noqa: E402
+from app import app  # noqa: E402
 from routers import auth as auth_routes  # noqa: E402
 from routers import pumps as pump_routes  # noqa: E402
+from services import rate_limit as rate_limit_service  # noqa: E402
 
 
 class FakeCursor:
@@ -71,7 +73,7 @@ class SecurityAndEndpointTests(unittest.TestCase):
             self.assertIsNone(crypto.verify_auth_token(token))
 
     def test_login_wrong_password_returns_401(self):
-        client = TestClient(api.app)
+        client = TestClient(app)
         wrong_hash = crypto.hash_password("correct-password")
         fake_conn = FakeConnection(FakeCursor({"id": 1, "email": "farmer@example.com", "password": wrong_hash}))
 
@@ -81,7 +83,7 @@ class SecurityAndEndpointTests(unittest.TestCase):
         self.assertEqual(response.status_code, 401)
 
     def test_signup_duplicate_email_returns_409(self):
-        client = TestClient(api.app)
+        client = TestClient(app)
         fake_conn = FakeConnection(FakeCursor(execute_error=IntegrityError("Duplicate entry for email")))
         payload = {
             "name": "Test Farmer",
@@ -99,18 +101,18 @@ class SecurityAndEndpointTests(unittest.TestCase):
         self.assertEqual(response.status_code, 409)
 
     def test_rate_limiter_raises_429_after_limit(self):
-        original_fail_open = api.PUBLIC_RATE_LIMIT_DB_FAIL_OPEN
-        api.PUBLIC_RATE_LIMIT_DB_FAIL_OPEN = True
-        api.PUBLIC_RATE_LIMITS.clear()
+        original_fail_open = rate_limit_service.PUBLIC_RATE_LIMIT_DB_FAIL_OPEN
+        rate_limit_service.PUBLIC_RATE_LIMIT_DB_FAIL_OPEN = True
+        rate_limit_service.PUBLIC_RATE_LIMITS.clear()
         try:
-            with patch.object(api, "get_connection", side_effect=RuntimeError("db unavailable")):
-                api.rate_limit_named_key("unit-test", "client", limit=1, window_seconds=60)
-                with self.assertRaises(api.HTTPException) as raised:
-                    api.rate_limit_named_key("unit-test", "client", limit=1, window_seconds=60)
+            with patch.object(rate_limit_service, "get_connection", side_effect=RuntimeError("db unavailable")):
+                rate_limit_service.rate_limit_named_key("unit-test", "client", limit=1, window_seconds=60)
+                with self.assertRaises(HTTPException) as raised:
+                    rate_limit_service.rate_limit_named_key("unit-test", "client", limit=1, window_seconds=60)
             self.assertEqual(raised.exception.status_code, 429)
         finally:
-            api.PUBLIC_RATE_LIMIT_DB_FAIL_OPEN = original_fail_open
-            api.PUBLIC_RATE_LIMITS.clear()
+            rate_limit_service.PUBLIC_RATE_LIMIT_DB_FAIL_OPEN = original_fail_open
+            rate_limit_service.PUBLIC_RATE_LIMITS.clear()
 
     def test_relay_parser_ignores_bad_keys_and_keeps_edge_relays(self):
         states = pump_routes.parse_relay_states({"relay1": "on", "r8": "1", "relay9": "on", "api_key": "secret", "bad": "on"})
