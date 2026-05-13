@@ -350,32 +350,10 @@ export default function Dashboard() {
     pollIntervalMs: SENSOR_POLL_INTERVAL_MS,
   });
 
-  const ownerPayload = useCallback(() => ({}), []);
-
-  const saveDashboardSnapshot = useCallback(async () => {
-    if (snapshotSaveInFlightRef.current) return;
-    snapshotSaveInFlightRef.current = true;
-    try {
-      const response = await protectedFetch(`${API}/farm/snapshot`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...ownerPayload(),
-          device_id: sensorConnection.deviceId || userData.sensorDeviceId || "",
-          source: sensorConnection.source,
-          sensor_data: sensorConnection.source === "esp32" ? sensorData : {},
-          pump_data: pumps,
-          timers: scheduledTimers,
-          weather_data: weatherData,
-          market_data: marketData,
-          telemetry_packet: telemetryPacket,
-        }),
-      });
-      if (!response.ok) throw new Error("Could not save dashboard snapshot");
-    } finally {
-      snapshotSaveInFlightRef.current = false;
-    }
-  }, [marketData, ownerPayload, protectedFetch, pumps, scheduledTimers, sensorConnection.deviceId, sensorConnection.source, sensorData, telemetryPacket, userData.sensorDeviceId, weatherData]);
+  const ownerPayload = useCallback(() => ({
+    user_id: userData.id || undefined,
+    email: userData.email || undefined,
+  }), [userData.email, userData.id]);
 
   const getUserMarketLocation = useCallback(() => {
     const place =
@@ -405,6 +383,89 @@ export default function Dashboard() {
     marketFriendlyError,
     emptyMarketData,
   });
+
+  // Language detection function
+  const detectLanguage = useCallback((text) => {
+    if (!text || text.trim().length === 0) return language;
+
+    if (/[\u0900-\u097F]/.test(text)) return 'hi';
+    if (/[\u0C00-\u0C7F]/.test(text)) return 'te';
+    if (/[\u0B80-\u0BFF]/.test(text)) return 'ta';
+    if (/[\u0C80-\u0CFF]/.test(text)) return 'kn';
+    if (/[\u0980-\u09FF]/.test(text)) return 'bn';
+    return 'en';
+  }, [language]);
+
+  const {
+    chatMessages,
+    setChatMessages,
+    chatInput,
+    setChatInput,
+    isTyping,
+    showSuggestions,
+    handleSendMessage,
+    handleSuggestionClick,
+  } = useAiChat({
+    protectedFetch,
+    language,
+    sensorConnection,
+    sensorDeviceId: userData.sensorDeviceId,
+    humanizeApiValue,
+    detectLanguage,
+  });
+
+  const onSpeechTranscript = useCallback((transcript, detectedLang) => {
+    if (speechSentRef.current) return;
+    setChatInput(transcript);
+
+    const detectedLangName = languages.find((item) => item.code === detectedLang)?.name || detectedLang;
+    const selectedLangName = languages.find((item) => item.code === language)?.name || language;
+    if (detectedLang !== language) {
+      toast.info(`Detected ${detectedLangName}; answering in ${selectedLangName}.`);
+    } else {
+      toast.success(`${detectedLangName} detected! Sending response in ${selectedLangName}...`);
+    }
+
+    speechSentRef.current = true;
+    setTimeout(() => handleSendMessageRef.current?.(transcript, null, detectedLang), 500);
+  }, [language, setChatInput]);
+
+  const { isListening, startListening: startSpeechListening, stopListening } = useSpeech({
+    language,
+    languages,
+    onTranscript: onSpeechTranscript,
+    detectLanguage,
+  });
+
+  const startListening = useCallback(() => {
+    speechSentRef.current = false;
+    startSpeechListening();
+  }, [startSpeechListening]);
+
+  const saveDashboardSnapshot = useCallback(async () => {
+    if (snapshotSaveInFlightRef.current) return;
+    snapshotSaveInFlightRef.current = true;
+    try {
+      const response = await protectedFetch(`${API}/farm/snapshot`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...ownerPayload(),
+          device_id: sensorConnection.deviceId || userData.sensorDeviceId || "",
+          source: sensorConnection.source,
+          sensor_data: sensorConnection.source === "esp32" ? sensorData : {},
+          pump_data: pumps,
+          timers: scheduledTimers,
+          weather_data: weatherData,
+          market_data: marketData,
+          telemetry_packet: telemetryPacket,
+        }),
+      });
+      if (!response.ok) throw new Error("Could not save dashboard snapshot");
+    } finally {
+      snapshotSaveInFlightRef.current = false;
+    }
+  }, [marketData, ownerPayload, protectedFetch, pumps, scheduledTimers, sensorConnection.deviceId, sensorConnection.source, sensorData, telemetryPacket, userData.sensorDeviceId, weatherData]);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", isDark);
@@ -686,64 +747,6 @@ export default function Dashboard() {
       setSetupChecking(false);
     }
   };
-  // Language detection function
-  const detectLanguage = useCallback((text) => {
-    if (!text || text.trim().length === 0) return language;
-
-    if (/[\u0900-\u097F]/.test(text)) return 'hi';
-    if (/[\u0C00-\u0C7F]/.test(text)) return 'te';
-    if (/[\u0B80-\u0BFF]/.test(text)) return 'ta';
-    if (/[\u0C80-\u0CFF]/.test(text)) return 'kn';
-    if (/[\u0980-\u09FF]/.test(text)) return 'bn';
-    return 'en';
-  }, [language]);
-
-  const {
-    chatMessages,
-    setChatMessages,
-    chatInput,
-    setChatInput,
-    isTyping,
-    showSuggestions,
-    handleSendMessage,
-    handleSuggestionClick,
-  } = useAiChat({
-    protectedFetch,
-    language,
-    sensorConnection,
-    sensorDeviceId: userData.sensorDeviceId,
-    humanizeApiValue,
-    detectLanguage,
-  });
-
-  const onSpeechTranscript = useCallback((transcript, detectedLang) => {
-    if (speechSentRef.current) return;
-    setChatInput(transcript);
-
-    const detectedLangName = languages.find((item) => item.code === detectedLang)?.name || detectedLang;
-    const selectedLangName = languages.find((item) => item.code === language)?.name || language;
-    if (detectedLang !== language) {
-      toast.info(`Detected ${detectedLangName}; answering in ${selectedLangName}.`);
-    } else {
-      toast.success(`${detectedLangName} detected! Sending response in ${selectedLangName}...`);
-    }
-
-    speechSentRef.current = true;
-    setTimeout(() => handleSendMessageRef.current?.(transcript, null, detectedLang), 500);
-  }, [language, setChatInput]);
-
-  const { isListening, startListening: startSpeechListening, stopListening } = useSpeech({
-    language,
-    languages,
-    onTranscript: onSpeechTranscript,
-    detectLanguage,
-  });
-
-  const startListening = useCallback(() => {
-    speechSentRef.current = false;
-    startSpeechListening();
-  }, [startSpeechListening]);
-
   const getTimerStartTime = (timerInput) => {
     if (!timerInput.hour || !timerInput.minute || !timerInput.period) return "";
     const hour12 = Number(timerInput.hour);

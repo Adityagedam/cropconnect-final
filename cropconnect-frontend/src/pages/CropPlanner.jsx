@@ -15,7 +15,7 @@ import {
   Wheat,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
-import { API, csrfHeadersAsync } from "../lib/api";
+import { API, csrfHeadersAsync, readSessionUser } from "../lib/api";
 
 const EMPTY_DISPLAY = "--";
 const toNumberOrNull = (value) => {
@@ -36,11 +36,15 @@ const normalizeSensorData = (value = {}) => ({
 });
 
 const readProfile = async () => {
+  const cachedUser = readSessionUser();
   const response = await fetch(`${API}/auth/profile`, {
     credentials: "include",
   });
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.detail || `Profile returned ${response.status}`);
+  if (!response.ok) {
+    if (cachedUser && [404, 405].includes(response.status)) return cachedUser;
+    throw new Error(payload.detail || `Profile returned ${response.status}`);
+  }
   return payload.user || {};
 };
 

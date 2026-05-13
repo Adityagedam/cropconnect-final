@@ -6,7 +6,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { toast } from "sonner";
-import { API, storeCsrfToken } from "../lib/api";
+import { API, storeCsrfToken, storeSessionUser } from "../lib/api";
 
 export default function SignInPage() {
   const navigate = useNavigate();
@@ -92,6 +92,7 @@ export default function SignInPage() {
         { withCredentials: true }
       );
       storeCsrfToken(response.data.csrfToken);
+      storeSessionUser(response.data.user);
 
       toast.success("Account created successfully! Welcome to CropConnect.");
       navigate("/dashboard");

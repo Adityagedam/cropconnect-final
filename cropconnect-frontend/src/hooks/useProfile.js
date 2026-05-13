@@ -1,7 +1,7 @@
 // Owns authenticated farmer profile loading, editing state, and persistence.
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { API } from "../lib/api";
+import { API, readSessionUser, storeSessionUser } from "../lib/api";
 
 export const normalizeUserProfile = (user = {}) => ({
   id: user.id || null,
@@ -40,7 +40,8 @@ const humanizeApiValue = (value, fallback = "") => {
  * @returns {object} Profile state and persistence actions.
  */
 export function useProfile(protectedFetch) {
-  const [userData, setUserData] = useState({
+  const cachedUser = readSessionUser();
+  const [userData, setUserData] = useState(() => cachedUser ? normalizeUserProfile(cachedUser) : {
     name: "",
     email: "",
     state: "",
@@ -61,7 +62,7 @@ export function useProfile(protectedFetch) {
   });
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [editData, setEditData] = useState({});
-  const [userLoaded, setUserLoaded] = useState(false);
+  const [userLoaded, setUserLoaded] = useState(() => Boolean(cachedUser));
   const [sensorSetupForm, setSensorSetupForm] = useState({
     deviceId: "",
     nodeCount: "1",
@@ -82,13 +83,23 @@ export function useProfile(protectedFetch) {
         const normalizedUser = normalizeUserProfile(payload.user || {});
         if (cancelled) return;
         setUserData(normalizedUser);
+        storeSessionUser(normalizedUser);
         setSensorSetupForm((prev) => ({
           ...prev,
           deviceId: normalizedUser.sensorDeviceId || prev.deviceId,
           nodeCount: normalizedUser.sensors || prev.nodeCount,
         }));
       } catch (error) {
-        if (!cancelled && error.message !== "Login expired") {
+        const fallbackUser = readSessionUser();
+        if (!cancelled && fallbackUser && /405|404|profile/i.test(error.message || "")) {
+          const normalizedUser = normalizeUserProfile(fallbackUser);
+          setUserData(normalizedUser);
+          setSensorSetupForm((prev) => ({
+            ...prev,
+            deviceId: normalizedUser.sensorDeviceId || prev.deviceId,
+            nodeCount: normalizedUser.sensors || prev.nodeCount,
+          }));
+        } else if (!cancelled && error.message !== "Login expired") {
           toast.error(error.message || "Could not load account profile");
         }
       } finally {
@@ -106,7 +117,7 @@ export function useProfile(protectedFetch) {
     const response = await protectedFetch(`${API}/auth/profile`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...updates }),
+      body: JSON.stringify({ user_id: userData.id, email: userData.email, ...updates }),
     });
     const payload = await response.json().catch(() => ({}));
 
@@ -114,8 +125,9 @@ export function useProfile(protectedFetch) {
       throw new Error(payload.detail || "Could not save data in MySQL");
     }
 
+    if (payload.user) storeSessionUser(payload.user);
     return payload.user;
-  }, [protectedFetch]);
+  }, [protectedFetch, userData.email, userData.id]);
 
   return {
     userData,

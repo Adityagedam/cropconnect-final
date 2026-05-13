@@ -2,7 +2,7 @@ import "@/App.css";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { Toaster } from "sonner";
-import { API } from "./lib/api";
+import { API, AUTH_CACHE_KEY, readSessionUser } from "./lib/api";
 
 import { LandingLanguageProvider } from "./components/landing/LandingLanguageContext";
 
@@ -15,7 +15,7 @@ const Dashboard = lazy(() => import("./pages/Dashboard"));
 const CropPlanner = lazy(() => import("./pages/CropPlanner"));
 const LegalPage = lazy(() => import("./pages/LegalPage"));
 
-export const AUTH_CACHE_KEY = "cc_auth_ok";
+export { AUTH_CACHE_KEY } from "./lib/api";
 const AUTH_CACHE_TTL = 60_000;
 
 export function ProtectedPage({ children }) {
@@ -30,6 +30,7 @@ export function ProtectedPage({ children }) {
         sessionStorage.removeItem(AUTH_CACHE_KEY);
       }
     }
+    if (readSessionUser()) return "allowed";
     return "checking";
   });
 
@@ -40,8 +41,13 @@ export function ProtectedPage({ children }) {
     fetch(`${API}/auth/profile`, { credentials: "include" })
       .then((response) => {
         if (!cancelled) {
-          sessionStorage.setItem(AUTH_CACHE_KEY, JSON.stringify({ ok: response.ok, ts: Date.now() }));
-          setAuthState(response.ok ? "allowed" : "denied");
+          if (response.ok || readSessionUser()) {
+            sessionStorage.setItem(AUTH_CACHE_KEY, JSON.stringify({ ok: true, ts: Date.now() }));
+            setAuthState("allowed");
+          } else {
+            sessionStorage.setItem(AUTH_CACHE_KEY, JSON.stringify({ ok: false, ts: Date.now() }));
+            setAuthState("denied");
+          }
         }
       })
       .catch(() => {

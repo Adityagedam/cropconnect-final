@@ -58,3 +58,28 @@ export const storeCsrfToken = (token) => {
 export const clearCsrfToken = () => {
   sessionStorage.removeItem("cropconnect-csrf-token");
 };
+
+export const AUTH_CACHE_KEY = "cc_auth_ok";
+export const SESSION_USER_KEY = "cc_user";
+
+export const storeSessionUser = (user) => {
+  if (!user) return;
+  sessionStorage.setItem(SESSION_USER_KEY, JSON.stringify(user));
+  sessionStorage.setItem(AUTH_CACHE_KEY, JSON.stringify({ ok: true, ts: Date.now() }));
+};
+
+export const readSessionUser = () => {
+  const raw = sessionStorage.getItem(SESSION_USER_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    sessionStorage.removeItem(SESSION_USER_KEY);
+    return null;
+  }
+};
+
+export const clearSessionUser = () => {
+  sessionStorage.removeItem(SESSION_USER_KEY);
+  sessionStorage.removeItem(AUTH_CACHE_KEY);
+};

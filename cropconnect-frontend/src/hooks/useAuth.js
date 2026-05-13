@@ -2,9 +2,7 @@
 import { useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { API, clearCsrfToken, csrfHeadersAsync } from "../lib/api";
-
-const AUTH_CACHE_KEY = "cc_auth_ok";
+import { API, clearCsrfToken, clearSessionUser, csrfHeadersAsync } from "../lib/api";
 
 /**
  * Provides auth-aware fetch helpers, profile state, logout, and profile save behavior.
@@ -66,7 +64,7 @@ export function useAuth() {
       // Local logout still clears client state if the network is unavailable.
     }
     clearCsrfToken();
-    sessionStorage.removeItem(AUTH_CACHE_KEY);
+    clearSessionUser();
     toast.success("Logged out successfully");
     navigate("/login");
   }, [navigate]);
