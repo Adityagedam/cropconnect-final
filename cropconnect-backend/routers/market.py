@@ -2,10 +2,9 @@
 from fastapi import APIRouter, Cookie, Header, HTTPException, Query
 
 from config import settings
-from http_client import request_json
 from logging_config import configure_logging
 from models import MarketInsightIn
-from services.ai_service import parse_ai_json, require_openai
+from services.ai_service import ai_model_name, ai_provider, chat_completion_text, parse_ai_json, require_ai_provider
 from services.auth_service import owner_profile_context, require_auth_owner
 from services.market_service import (
     build_market_insight_messages,
@@ -82,7 +81,7 @@ def market_insights(
 ):
     owner_id, _owner_email = require_auth_owner(authorization, auth_cookie)
     rate_limit_authenticated_request(owner_id, "ai-market-insights", limit=6, window_seconds=15 * 60)
-    require_openai()
+    require_ai_provider()
 
     if not settings.data_gov_api_key:
         raise HTTPException(status_code=503, detail="Live mandi price feed is not configured")
@@ -121,17 +120,11 @@ def market_insights(
     }
 
     try:
-        data = request_json(
-            "https://api.openai.com/v1/chat/completions",
-            {
-                "model": settings.openai_model,
-                "messages": build_market_insight_messages(context, payload.language, payload.objective),
-                "temperature": 0.2,
-                "max_tokens": 800,
-            },
-            {"Authorization": f"Bearer {settings.openai_api_key}"},
+        raw = chat_completion_text(
+            build_market_insight_messages(context, payload.language, payload.objective),
+            temperature=0.2,
+            max_tokens=800,
         )
-        raw = data.get("choices", [{}])[0].get("message", {}).get("content", "")
         insight = normalize_market_insight_payload(parse_ai_json(raw))
     except HTTPException:
         raise
@@ -140,8 +133,8 @@ def market_insights(
 
     return {
         "ok": True,
-        "source": "openai_with_live_market_data",
-        "model": settings.openai_model,
+        "source": f"{ai_provider()}_with_live_market_data",
+        "model": ai_model_name(),
         **insight,
         "market_data": market_context,
         "sensor_context": live_sensor_context,

@@ -177,6 +177,94 @@ def require_openai() -> None:
         raise HTTPException(status_code=503, detail="OPENAI_API_KEY is required for AI-powered decisions")
 
 
+def ai_provider() -> str:
+    provider = (settings.ai_provider or "openai").strip().lower()
+    return provider if provider in {"openai", "gemini"} else "openai"
+
+
+def ai_model_name() -> str:
+    return settings.gemini_model if ai_provider() == "gemini" else settings.openai_model
+
+
+def require_ai_provider() -> None:
+    provider = ai_provider()
+    if provider == "gemini":
+        if not settings.gemini_api_key:
+            raise HTTPException(status_code=503, detail="GEMINI_API_KEY is required for AI-powered decisions")
+        return
+    if not settings.openai_api_key:
+        raise HTTPException(status_code=503, detail="OPENAI_API_KEY is required for AI-powered decisions")
+
+
+def gemini_text_from_response(data: dict[str, Any]) -> str:
+    candidates = data.get("candidates") if isinstance(data, dict) else []
+    if not candidates:
+        return ""
+    content = (candidates[0] or {}).get("content") or {}
+    parts = content.get("parts") or []
+    return "".join(str(part.get("text") or "") for part in parts if isinstance(part, dict)).strip()
+
+
+def gemini_payload_from_messages(messages: list[dict[str, str]], temperature: float, max_tokens: int) -> dict[str, Any]:
+    system_parts = []
+    contents = []
+    for message in messages:
+        role = str(message.get("role") or "user").lower()
+        text = str(message.get("content") or "")
+        if not text:
+            continue
+        if role in {"system", "developer"}:
+            system_parts.append(text)
+        else:
+            contents.append({
+                "role": "model" if role == "assistant" else "user",
+                "parts": [{"text": text}],
+            })
+
+    payload: dict[str, Any] = {
+        "contents": contents or [{"role": "user", "parts": [{"text": ""}]}],
+        "generationConfig": {
+            "temperature": temperature,
+            "maxOutputTokens": max_tokens,
+        },
+    }
+    if system_parts:
+        payload["systemInstruction"] = {"parts": [{"text": "\n\n".join(system_parts)}]}
+    return payload
+
+
+def chat_completion_text(messages: list[dict[str, str]], temperature: float = 0.2, max_tokens: int = 800) -> str:
+    require_ai_provider()
+    provider = ai_provider()
+    if provider == "gemini":
+        model = settings.gemini_model
+        url = (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            + urllib.parse.quote(model, safe="")
+            + ":generateContent?key="
+            + urllib.parse.quote(settings.gemini_api_key, safe="")
+        )
+        data = request_json(
+            url,
+            gemini_payload_from_messages(messages, temperature, max_tokens),
+            attempts=1,
+            timeout_seconds=30,
+        )
+        return gemini_text_from_response(data)
+
+    data = request_json(
+        "https://api.openai.com/v1/chat/completions",
+        {
+            "model": settings.openai_model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        },
+        {"Authorization": f"Bearer {settings.openai_api_key}"},
+    )
+    return data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+
+
 def google_search(query: str, location: str | None = "") -> list[dict[str, str]]:
     if not settings.google_api_key or not settings.google_cse_id:
         return []
@@ -267,7 +355,9 @@ def translate_texts_with_library(texts: list[str], target_lang: str) -> list[str
 
 
 def classify_farm_scope_with_ai(message: str, language: str = "en") -> bool:
-    if not settings.openai_api_key:
+    if ai_provider() == "openai" and not settings.openai_api_key:
+        return is_plant_or_soil_question(message)
+    if ai_provider() == "gemini" and not settings.gemini_api_key:
         return is_plant_or_soil_question(message)
 
     prompt = (
@@ -279,26 +369,20 @@ def classify_farm_scope_with_ai(message: str, language: str = "en") -> bool:
         "Return strict JSON only."
     )
     try:
-        data = request_json(
-            "https://api.openai.com/v1/chat/completions",
-            {
-                "model": settings.openai_model,
-                "messages": [
-                    {"role": "system", "content": prompt},
-                    {
-                        "role": "user",
-                        "content": json.dumps(
-                            {"message": message, "selected_language": language},
-                            ensure_ascii=False,
-                        ),
-                    },
-                ],
-                "temperature": 0,
-                "max_tokens": 40,
-            },
-            {"Authorization": f"Bearer {settings.openai_api_key}"},
+        raw = chat_completion_text(
+            [
+                {"role": "system", "content": prompt},
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {"message": message, "selected_language": language},
+                        ensure_ascii=False,
+                    ),
+                },
+            ],
+            temperature=0,
+            max_tokens=40,
         )
-        raw = data.get("choices", [{}])[0].get("message", {}).get("content", "")
         parsed = parse_ai_json(raw)
         if not isinstance(parsed, dict) or "in_scope" not in parsed:
             raise ValueError("Scope classifier returned an unexpected response")
@@ -337,7 +421,7 @@ def translate_texts_with_ai(texts: list[str], target_lang: str) -> list[str]:
     if missing:
         translated_items: list[str] | None = None
 
-        if settings.openai_api_key and not OPENAI_TRANSLATION_UNAVAILABLE:
+        if (settings.openai_api_key or settings.gemini_api_key) and not OPENAI_TRANSLATION_UNAVAILABLE:
             prompt = (
                 "Translate this JSON array of CropConnect farming website UI strings from English "
                 f"to {target_lang}. Preserve placeholders like {{name}}, {{moisture}}, {{temp}}, HTML tags, "
@@ -347,23 +431,17 @@ def translate_texts_with_ai(texts: list[str], target_lang: str) -> list[str]:
             )
 
             try:
-                response = request_json(
-                    "https://api.openai.com/v1/chat/completions",
-                    payload={
-                        "model": settings.openai_model,
-                        "messages": [
-                            {
-                                "role": "system",
-                                "content": "You are a precise UI localization engine. Output valid JSON only.",
-                            },
-                            {"role": "user", "content": prompt},
-                        ],
-                        "temperature": 0,
-                    },
-                    headers={"Authorization": f"Bearer {settings.openai_api_key}"},
-                    attempts=1,
+                raw = chat_completion_text(
+                    [
+                        {
+                            "role": "system",
+                            "content": "You are a precise UI localization engine. Output valid JSON only.",
+                        },
+                        {"role": "user", "content": prompt},
+                    ],
+                    temperature=0,
+                    max_tokens=4000,
                 )
-                raw = response["choices"][0]["message"]["content"].strip()
                 parsed_items = json.loads(raw)
                 if not isinstance(parsed_items, list) or len(parsed_items) != len(missing):
                     raise ValueError("Translator returned an unexpected response shape")

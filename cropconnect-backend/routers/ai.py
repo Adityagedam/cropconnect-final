@@ -4,16 +4,18 @@ from fastapi import APIRouter, Cookie, Header, HTTPException, Request
 
 from config import settings
 from crop_ai_agent import build_crop_recommendation_messages, has_core_sensor_context, missing_crop_readings
-from http_client import request_json
 from logging_config import configure_logging
 from models import AIOrchestrateIn, ChatIn, CropRecommendIn, TranslateIn
 from services.ai_service import (
     LANGUAGE_NAMES,
+    ai_model_name,
+    ai_provider,
+    chat_completion_text,
     classify_farm_scope_with_ai,
     google_search,
     is_market_question,
     parse_ai_json,
-    require_openai,
+    require_ai_provider,
     selected_language,
     translate_texts_with_ai,
 )
@@ -24,8 +26,6 @@ from services.sensor_service import latest_sensor_context
 
 AUTH_COOKIE_NAME = "cropconnect_auth"
 PUBLIC_TRANSLATION_ENABLED = settings.public_translation_enabled
-OPENAI_API_KEY = settings.openai_api_key
-OPENAI_MODEL = settings.openai_model
 router = APIRouter()
 logger = configure_logging()
 
@@ -145,7 +145,21 @@ def ai_chat(
     }
     search_results = google_search(payload.message, profile_location) if related_to_plant_or_soil else []
 
-    if not OPENAI_API_KEY:
+    if ai_provider() == "openai" and not settings.openai_api_key:
+        fallback_reply = fallback_farm_reply(payload.message, live_sensor_context, profile_location)
+        insert_chat_record(owner_id, owner_email, "user", payload.message, related_to_plant_or_soil, live_sensor_data, profile_location)
+        insert_chat_record(owner_id, owner_email, "bot", fallback_reply, related_to_plant_or_soil, live_sensor_data, profile_location)
+        return {
+            "ok": True,
+            "source": "local_fallback",
+            "related_to_plant_or_soil": related_to_plant_or_soil,
+            "reply": fallback_reply,
+            "sensor_source": live_sensor_context.get("source"),
+            "sensor_recorded_at": live_sensor_context.get("recorded_at"),
+            "sensor_message": live_sensor_context.get("message", ""),
+            "used_google_search": bool(search_results),
+        }
+    if ai_provider() == "gemini" and not settings.gemini_api_key:
         fallback_reply = fallback_farm_reply(payload.message, live_sensor_context, profile_location)
         insert_chat_record(owner_id, owner_email, "user", payload.message, related_to_plant_or_soil, live_sensor_data, profile_location)
         insert_chat_record(owner_id, owner_email, "bot", fallback_reply, related_to_plant_or_soil, live_sensor_data, profile_location)
@@ -215,16 +229,7 @@ def ai_chat(
     })
 
     try:
-        data = request_json(
-            "https://api.openai.com/v1/chat/completions",
-            {
-                "model": OPENAI_MODEL,
-                "messages": messages,
-                "temperature": 0.25,
-                "max_tokens": 600,
-            },
-            {"Authorization": f"Bearer {OPENAI_API_KEY}"},
-        )
+        reply = chat_completion_text(messages, temperature=0.25, max_tokens=600)
     except Exception as exc:
         logger.exception("AI chatbot request failed, using local fallback: %s", exc)
         fallback_reply = fallback_farm_reply(payload.message, live_sensor_context, profile_location)
@@ -241,7 +246,6 @@ def ai_chat(
             "used_google_search": bool(search_results),
         }
 
-    reply = data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
     if not reply:
         insert_chat_record(owner_id, owner_email, "user", payload.message, related_to_plant_or_soil, live_sensor_data, profile_location)
         raise HTTPException(status_code=502, detail="AI chatbot returned an empty answer")
@@ -269,7 +273,7 @@ def crop_recommend(
 ):
     owner_id, _owner_email = require_auth_owner(authorization, auth_cookie)
     rate_limit_authenticated_request(owner_id, "ai-crop-recommend", limit=8, window_seconds=15 * 60)
-    require_openai()
+    require_ai_provider()
 
     owner_profile = owner_profile_context(owner_id)
     owner_device_id = str(owner_profile.get("sensorDeviceId") or "").strip()
@@ -322,17 +326,7 @@ def crop_recommend(
         }
 
     try:
-        data = request_json(
-            "https://api.openai.com/v1/chat/completions",
-            {
-                "model": OPENAI_MODEL,
-                "messages": build_crop_recommendation_messages(context),
-                "temperature": 0.2,
-                "max_tokens": 1200,
-            },
-            {"Authorization": f"Bearer {OPENAI_API_KEY}"},
-        )
-        raw = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        raw = chat_completion_text(build_crop_recommendation_messages(context), temperature=0.2, max_tokens=1200)
         parsed = parse_ai_json(raw)
     except HTTPException:
         raise
@@ -345,8 +339,8 @@ def crop_recommend(
 
     return {
         "ok": True,
-        "source": "openai",
-        "model": OPENAI_MODEL,
+        "source": ai_provider(),
+        "model": ai_model_name(),
         "crops": crops,
         "summary": parsed.get("summary", "") if isinstance(parsed, dict) else "",
         "missing_readings": missing_readings,
@@ -363,7 +357,7 @@ def ai_orchestrate(
 ):
     owner_id, owner_email = require_auth_owner(authorization, auth_cookie)
     rate_limit_authenticated_request(owner_id, "ai-orchestrate", limit=8, window_seconds=15 * 60)
-    require_openai()
+    require_ai_provider()
 
     owner_profile = owner_profile_context(owner_id)
     device_id = str(owner_profile.get("sensorDeviceId") or "").strip()
@@ -396,20 +390,14 @@ def ai_orchestrate(
     )
 
     try:
-        data = request_json(
-            "https://api.openai.com/v1/chat/completions",
-            {
-                "model": OPENAI_MODEL,
-                "messages": [
-                    {"role": "system", "content": prompt},
-                    {"role": "user", "content": json.dumps(context, ensure_ascii=False, default=str)},
-                ],
-                "temperature": 0.15,
-                "max_tokens": 1200,
-            },
-            {"Authorization": f"Bearer {OPENAI_API_KEY}"},
+        raw = chat_completion_text(
+            [
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": json.dumps(context, ensure_ascii=False, default=str)},
+            ],
+            temperature=0.15,
+            max_tokens=1200,
         )
-        raw = data.get("choices", [{}])[0].get("message", {}).get("content", "")
         parsed = parse_ai_json(raw)
     except HTTPException:
         raise
@@ -425,7 +413,7 @@ def ai_orchestrate(
 
     return {
         "ok": True,
-        "source": "openai",
-        "model": OPENAI_MODEL,
+        "source": ai_provider(),
+        "model": ai_model_name(),
         "plan": parsed,
     }
