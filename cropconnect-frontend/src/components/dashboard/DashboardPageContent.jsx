@@ -418,7 +418,7 @@ export default function DashboardPageContent({ ctx }) {
           <div className="space-y-4">
             {notificationItems.length === 0 && (
               <div className="p-6 rounded-xl bg-white border border-[#e8e3d8] shadow-sm text-center text-sm" style={{ color: colors.textLight }}>
-                {EMPTY_DISPLAY}
+                No notifications yet.
               </div>
             )}
             {notificationItems.map((item) => (
