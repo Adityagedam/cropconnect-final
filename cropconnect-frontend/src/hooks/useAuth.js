@@ -2,7 +2,7 @@
 import { useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { API, clearCsrfToken, clearSessionUser, csrfHeadersAsync } from "../lib/api";
+import { API, authHeaders, clearCsrfToken, clearSessionUser, csrfHeadersAsync } from "../lib/api";
 
 /**
  * Provides auth-aware fetch helpers, profile state, logout, and profile save behavior.
@@ -26,6 +26,7 @@ export function useAuth() {
       ...options,
       credentials: "include",
       headers: {
+        ...authHeaders(),
         ...(options.headers || {}),
         ...csrf,
       },
@@ -40,6 +41,7 @@ export function useAuth() {
       response = await fetch(url, {
         ...requestOptions,
         headers: {
+          ...authHeaders(),
           ...(options.headers || {}),
           ...retryCsrf,
         },
@@ -59,7 +61,10 @@ export function useAuth() {
       await fetch(`${API}/auth/logout`, {
         method: "POST",
         credentials: "include",
-        headers: await csrfHeadersAsync(),
+        headers: {
+          ...authHeaders(),
+          ...(await csrfHeadersAsync()),
+        },
       });
     } catch {
       // Local logout still clears client state if the network is unavailable.

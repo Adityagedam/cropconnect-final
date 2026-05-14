@@ -130,6 +130,7 @@ def auth_signup(payload: AuthSignupIn, request: Request, response: Response):
     return {
         "ok": True,
         "user": user,
+        "token": token,
         "csrfToken": csrf_token,
     }
 
@@ -166,6 +167,7 @@ def auth_login(payload: AuthLoginIn, request: Request, response: Response):
     return {
         "ok": True,
         "user": user,
+        "token": token,
         "csrfToken": csrf_token,
     }
 
@@ -190,7 +192,7 @@ def auth_refresh(response: Response, request: Request):
     if not fresh_token:
         return {"ok": True, "refreshed": False}
     csrf_token = set_auth_cookie(response, fresh_token)
-    return {"ok": True, "refreshed": True, "csrfToken": csrf_token}
+    return {"ok": True, "refreshed": True, "token": fresh_token, "csrfToken": csrf_token}
 
 
 @router.get("/api/auth/profile")

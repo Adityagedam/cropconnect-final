@@ -6,7 +6,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { toast } from "sonner";
-import { API, clearCsrfToken, clearSessionUser, storeCsrfToken, storeSessionUser } from "../lib/api";
+import { API, clearCsrfToken, clearSessionUser, storeAuthToken, storeCsrfToken, storeSessionUser } from "../lib/api";
 import { useLandingLanguage } from "../components/landing/LandingLanguageContext";
 import LanguageSelect from "../components/LanguageSelect";
 
@@ -41,6 +41,7 @@ export default function LoginPage() {
         },
         { withCredentials: true }
       );
+      storeAuthToken(response.data.token);
       storeCsrfToken(response.data.csrfToken);
       storeSessionUser(response.data.user);
 

@@ -38,7 +38,10 @@ export const csrfHeadersAsync = async ({ refresh = false } = {}) => {
   if (existingToken && !refresh) return { "X-CSRF-Token": existingToken };
 
   try {
-    const response = await fetch(`${API}/auth/csrf`, { credentials: "include" });
+    const response = await fetch(`${API}/auth/csrf`, {
+      credentials: "include",
+      headers: authHeaders(),
+    });
     const payload = await response.json().catch(() => ({}));
     if (response.ok && payload.csrfToken) {
       storeCsrfToken(payload.csrfToken);
@@ -61,6 +64,22 @@ export const clearCsrfToken = () => {
 
 export const AUTH_CACHE_KEY = "cc_auth_ok";
 export const SESSION_USER_KEY = "cc_user";
+export const AUTH_TOKEN_KEY = "cc_auth_token";
+
+export const storeAuthToken = (token) => {
+  if (token) sessionStorage.setItem(AUTH_TOKEN_KEY, token);
+};
+
+export const readAuthToken = () => sessionStorage.getItem(AUTH_TOKEN_KEY) || "";
+
+export const authHeaders = () => {
+  const token = readAuthToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
+export const clearAuthToken = () => {
+  sessionStorage.removeItem(AUTH_TOKEN_KEY);
+};
 
 export const storeSessionUser = (user) => {
   if (!user) return;
@@ -82,4 +101,5 @@ export const readSessionUser = () => {
 export const clearSessionUser = () => {
   sessionStorage.removeItem(SESSION_USER_KEY);
   sessionStorage.removeItem(AUTH_CACHE_KEY);
+  clearAuthToken();
 };

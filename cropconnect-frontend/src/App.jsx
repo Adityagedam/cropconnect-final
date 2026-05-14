@@ -2,7 +2,7 @@ import "@/App.css";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { Toaster } from "sonner";
-import { API, AUTH_CACHE_KEY, readSessionUser } from "./lib/api";
+import { API, AUTH_CACHE_KEY, authHeaders, readAuthToken, readSessionUser } from "./lib/api";
 
 import { LandingLanguageProvider } from "./components/landing/LandingLanguageContext";
 
@@ -26,12 +26,12 @@ export function ProtectedPage({ children }) {
     if (cached) {
       try {
         const { ok, ts } = JSON.parse(cached);
-        if (ok && Date.now() - ts < AUTH_CACHE_TTL) return "allowed";
+        if (ok && readAuthToken() && Date.now() - ts < AUTH_CACHE_TTL) return "allowed";
       } catch {
         sessionStorage.removeItem(AUTH_CACHE_KEY);
       }
     }
-    if (readSessionUser()) return "allowed";
+    if (readSessionUser() && readAuthToken()) return "allowed";
     return "checking";
   });
 
@@ -39,10 +39,13 @@ export function ProtectedPage({ children }) {
     if (authState !== "checking") return undefined;
     let cancelled = false;
 
-    fetch(`${API}/auth/profile`, { credentials: "include" })
+    fetch(`${API}/auth/profile`, {
+      credentials: "include",
+      headers: authHeaders(),
+    })
       .then((response) => {
         if (!cancelled) {
-          if (response.ok || readSessionUser()) {
+          if (response.ok) {
             sessionStorage.setItem(AUTH_CACHE_KEY, JSON.stringify({ ok: true, ts: Date.now() }));
             setAuthState("allowed");
           } else {
@@ -82,7 +85,7 @@ function App() {
   return (
     <div className="App grain" data-auto-translate-root="true">
       <LandingLanguageProvider>
-        <BrowserRouter>
+        <BrowserRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
           <Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-[#F7F3EA] px-4 text-sm font-semibold text-[#31572C]">Loading...</div>}>
             <Routes>
               <Route path="/" element={<LandingPage />} />
