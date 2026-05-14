@@ -1,10 +1,10 @@
 import { useLandingLanguage } from "./LandingLanguageContext";
 
 const stats = [
-  { k: "--" },
-  { k: "--" },
-  { k: "--" },
-  { k: "--" },
+  { k: "4" },
+  { k: "7" },
+  { k: "24h" },
+  { k: "ESP32" },
 ];
 
 export default function ImpactStats() {

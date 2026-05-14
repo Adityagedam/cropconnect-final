@@ -15,7 +15,7 @@ import {
   Wheat,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
-import { API, csrfHeadersAsync, readSessionUser } from "../lib/api";
+import { API, authHeaders, csrfHeadersAsync, readSessionUser } from "../lib/api";
 
 const EMPTY_DISPLAY = "--";
 const toNumberOrNull = (value) => {
@@ -39,6 +39,7 @@ const readProfile = async () => {
   const cachedUser = readSessionUser();
   const response = await fetch(`${API}/auth/profile`, {
     credentials: "include",
+    headers: authHeaders(),
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -51,6 +52,7 @@ const readProfile = async () => {
 const readLatestSensors = async (deviceId) => {
   const response = await fetch(`${API}/sensors/latest?device_id=${encodeURIComponent(deviceId)}`, {
     credentials: "include",
+    headers: authHeaders(),
   });
   if (!response.ok) throw new Error(`Sensor API returned ${response.status}`);
   const data = await response.json();
@@ -187,6 +189,7 @@ export default function CropPlanner({
         method: "POST",
         credentials: "include",
         headers: {
+          ...authHeaders(),
           "Content-Type": "application/json",
           ...(await csrfHeadersAsync()),
         },
@@ -197,6 +200,7 @@ export default function CropPlanner({
           method: "POST",
           credentials: "include",
           headers: {
+            ...authHeaders(),
             "Content-Type": "application/json",
             ...(await csrfHeadersAsync({ refresh: true })),
           },

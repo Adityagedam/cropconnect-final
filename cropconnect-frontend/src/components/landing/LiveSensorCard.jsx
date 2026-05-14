@@ -19,6 +19,13 @@ const META = {
 };
 
 const ORDER = ["soil_moisture", "temperature", "humidity", "ph"];
+const DEMO_READINGS = [
+  { sensor_type: "soil_moisture", value: 42, unit: "%" },
+  { sensor_type: "temperature", value: 28, unit: "C" },
+  { sensor_type: "humidity", value: 64, unit: "%" },
+  { sensor_type: "ph", value: 6.7, unit: "" },
+];
+
 export default function LiveSensorCard() {
   const [sensorPayload, setSensorPayload] = useState({
     device_id: "",
@@ -76,14 +83,16 @@ export default function LiveSensorCard() {
 
   const visible = useMemo(() => {
     const readings = Array.isArray(sensorPayload.readings) ? sensorPayload.readings : [];
+    const sourceReadings = readings.length ? readings : DEMO_READINGS;
     return ORDER
-      .map((sensorType) => readings.find((reading) => reading.sensor_type === sensorType))
+      .map((sensorType) => sourceReadings.find((reading) => reading.sensor_type === sensorType))
       .filter(Boolean);
   }, [sensorPayload.readings]);
-  const isLive = sensorPayload.source === "esp32" && visible.length > 0;
+  const hasPublicReadings = Array.isArray(sensorPayload.readings) && sensorPayload.readings.length > 0;
+  const isLive = sensorPayload.source === "esp32" && hasPublicReadings;
   const updatedAt = sensorPayload.recorded_at
     ? new Date(sensorPayload.recorded_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-    : "--";
+    : "demo";
 
   return (
     <div
@@ -93,7 +102,7 @@ export default function LiveSensorCard() {
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           {isLive && <span className="live-dot" />}
-          <span className="eyebrow">{isLive ? "Live sensor node" : "Sensor data unavailable"}</span>
+          <span className="eyebrow">{isLive ? "Live sensor node" : "Demo field snapshot"}</span>
         </div>
         <span className="font-mono text-[10px] text-[#1A201C]/50" data-testid="sensor-updated-at">
           {updatedAt}
@@ -126,23 +135,18 @@ export default function LiveSensorCard() {
                   className="font-display text-2xl text-[#1A201C]"
                   data-testid={`sensor-${reading.sensor_type}-value`}
                 >
-                  {reading.value ?? "--"}
+                  {reading.value ?? "pending"}
                 </span>
                 <span className="text-xs text-[#1A201C]/60">{reading.value == null ? "" : reading.unit}</span>
               </div>
             </div>
           );
         })}
-        {!visible.length && (
-          <div className="col-span-2 rounded-xl border border-[#E8E4D7] bg-[#FDFBF7] p-6 text-center text-sm text-[#1A201C]/50">
-            --
-          </div>
-        )}
       </div>
 
       <div className="mt-4 pt-3 border-t border-dashed border-[#D5D1C5] flex items-center justify-between text-[11px] text-[#1A201C]/60">
-        <span className="font-mono">device: {sensorPayload.device_id || "--"}</span>
-        <span>{isLive ? "latest MySQL ESP32 reading" : sensorPayload.message || "sensor offline"}</span>
+        <span className="font-mono">device: {sensorPayload.device_id || "ESP32-DEMO-01"}</span>
+        <span>{isLive ? "latest MySQL ESP32 reading" : "sample values until public sensor is connected"}</span>
       </div>
     </div>
   );

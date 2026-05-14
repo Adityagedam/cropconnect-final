@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import axios from "axios";
 import { Leaf, Mail, Lock, User, Phone, ArrowRight, Eye, EyeOff, MapPin } from "lucide-react";
@@ -6,7 +6,11 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { toast } from "sonner";
-import { API, storeCsrfToken, storeSessionUser } from "../lib/api";
+import { API, storeAuthToken, storeCsrfToken, storeSessionUser } from "../lib/api";
+import { INDIA_STATES, getDistrictOptions, getPlaceOptions } from "../lib/indiaLocations";
+
+const locationSelectClass =
+  "h-10 w-full rounded-md border border-[#D5D1C5] bg-[#FDFBF7] pl-10 pr-8 text-base text-[#1A201C] shadow-sm focus:border-[#1B4332] focus:outline-none focus:ring-2 focus:ring-[#1B4332]/20 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm";
 
 export default function SignInPage() {
   const navigate = useNavigate();
@@ -26,19 +30,33 @@ export default function SignInPage() {
   });
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState(1);
+  const districtOptions = useMemo(() => getDistrictOptions(formData.state), [formData.state]);
+  const placeOptions = useMemo(
+    () => getPlaceOptions(formData.state, formData.district),
+    [formData.state, formData.district]
+  );
+  const locationFieldName = formData.locationType === "city" ? "city" : "village";
 
   const handleChange = (e) => {
-    setFormData((prev) => ({
-      ...prev,
-      [e.target.name]: e.target.value,
-    }));
-    // Reset city/village when state or locationType changes
-    if (e.target.name === "state") {
-      setFormData((prev) => ({ ...prev, district: "", city: "", village: "" }));
-    }
-    if (e.target.name === "locationType") {
-      setFormData((prev) => ({ ...prev, city: "", village: "" }));
-    }
+    const { name, value } = e.target;
+    setFormData((prev) => {
+      const next = {
+        ...prev,
+        [name]: value,
+      };
+
+      if (name === "state") {
+        next.district = "";
+        next.city = "";
+        next.village = "";
+      }
+      if (name === "district" || name === "locationType") {
+        next.city = "";
+        next.village = "";
+      }
+
+      return next;
+    });
   };
 
   const handleSubmit = async (e) => {
@@ -91,6 +109,7 @@ export default function SignInPage() {
         },
         { withCredentials: true }
       );
+      storeAuthToken(response.data.token);
       storeCsrfToken(response.data.csrfToken);
       storeSessionUser(response.data.user);
 
@@ -252,16 +271,21 @@ export default function SignInPage() {
                   </Label>
                   <div className="relative">
                     <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#1A201C]/40" />
-                    <Input
+                    <select
                       id="state"
                       name="state"
-                      type="text"
                       value={formData.state}
                       onChange={handleChange}
                       required
-                      placeholder="--"
-                      className="pl-10 bg-[#FDFBF7] border-[#D5D1C5] focus:border-[#1B4332] focus:ring-[#1B4332]/20"
-                    />
+                      className={locationSelectClass}
+                    >
+                      <option value="">Select state</option>
+                      {INDIA_STATES.map((state) => (
+                        <option key={state.code} value={state.name}>
+                          {state.name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 
@@ -301,50 +325,71 @@ export default function SignInPage() {
                   </Label>
                   <div className="relative">
                     <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#1A201C]/40" />
-                    <Input
+                    <select
                       id="district"
                       name="district"
-                      type="text"
                       value={formData.district}
                       onChange={handleChange}
                       required
                       disabled={!formData.state}
-                      placeholder="--"
-                      className="pl-10 bg-[#FDFBF7] border-[#D5D1C5] focus:border-[#1B4332] focus:ring-[#1B4332]/20 disabled:opacity-50"
-                    />
+                      className={locationSelectClass}
+                    >
+                      <option value="">
+                        {formData.state ? "Select district" : "Select state first"}
+                      </option>
+                      {districtOptions.map((district) => (
+                        <option key={district} value={district}>
+                          {district}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor={formData.locationType === "city" ? "city" : "village"} className="text-[#1A201C]">
+                  <Label htmlFor={locationFieldName} className="text-[#1A201C]">
                     {formData.locationType === "city" ? "City" : "Village"}
                   </Label>
                   <div className="relative">
                     <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#1A201C]/40" />
                     {formData.locationType === "city" ? (
-                      <Input
+                      <select
                         id="city"
                         name="city"
-                        type="text"
                         value={formData.city}
                         onChange={handleChange}
                         required
-                        disabled={!formData.state}
-                        placeholder="--"
-                        className="pl-10 bg-[#FDFBF7] border-[#D5D1C5] focus:border-[#1B4332] focus:ring-[#1B4332]/20 disabled:opacity-50"
-                      />
+                        disabled={!formData.district}
+                        className={locationSelectClass}
+                      >
+                        <option value="">
+                          {formData.district ? "Select city" : "Select district first"}
+                        </option>
+                        {placeOptions.map((place) => (
+                          <option key={place} value={place}>
+                            {place}
+                          </option>
+                        ))}
+                      </select>
                     ) : (
-                      <Input
+                      <select
                         id="village"
                         name="village"
-                        type="text"
-                        placeholder="--"
                         value={formData.village}
                         onChange={handleChange}
                         required
-                        disabled={!formData.state}
-                        className="pl-10 bg-[#FDFBF7] border-[#D5D1C5] focus:border-[#1B4332] focus:ring-[#1B4332]/20 disabled:opacity-50"
-                      />
+                        disabled={!formData.district}
+                        className={locationSelectClass}
+                      >
+                        <option value="">
+                          {formData.district ? "Select village / area" : "Select district first"}
+                        </option>
+                        {placeOptions.map((place) => (
+                          <option key={place} value={place}>
+                            {place}
+                          </option>
+                        ))}
+                      </select>
                     )}
                   </div>
                 </div>

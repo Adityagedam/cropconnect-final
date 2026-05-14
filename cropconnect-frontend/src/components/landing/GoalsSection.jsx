@@ -2,9 +2,19 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "../ui/tabs";
 import { CheckCircle2 } from "lucide-react";
 import { useLandingLanguage } from "./LandingLanguageContext";
 
-const shortTerm = ["--"];
+const shortTerm = [
+  "Connect one ESP32 field node to the live dashboard.",
+  "Show soil moisture, temperature, humidity and pH readings.",
+  "Store telemetry in MySQL with per-device API keys.",
+  "Use AI crop planning from farm location and sensor context.",
+];
 
-const longTerm = ["--"];
+const longTerm = [
+  "Support multiple farm plots and pump zones per account.",
+  "Add seasonal crop history and yield comparison reports.",
+  "Improve multilingual guidance for farmer-first workflows.",
+  "Build a verified device network for FPO and research partners.",
+];
 
 export default function GoalsSection() {
   const { t } = useLandingLanguage();

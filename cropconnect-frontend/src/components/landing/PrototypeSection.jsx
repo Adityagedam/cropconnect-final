@@ -5,7 +5,7 @@ const specs = [
   { icon: Cpu, label: "MCU", value: "ESP32 field node" },
   { icon: Radio, label: "Connectivity", value: "SIM800L cellular" },
   { icon: CircuitBoard, label: "Sensors", value: "Soil, DHT22, pH, NPK" },
-  { icon: Ruler, label: "Field scale", value: "--" },
+  { icon: Ruler, label: "Field scale", value: "1-2 acre pilot plot" },
 ];
 
 export default function PrototypeSection() {

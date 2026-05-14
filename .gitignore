@@ -11,3 +11,5 @@ dist/
 .env.local
 .DS_Store
 .vscode/
+
+.vercel

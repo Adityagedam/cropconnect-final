@@ -32,6 +32,7 @@ export default function Hero() {
             className="font-display mt-6 text-[clamp(2.6rem,6.5vw,4.8rem)] leading-[0.98] tracking-tight text-[#1A201C]"
           >
             {t("heroTitle1")}
+            {" "}
             <span className="italic text-[#1B4332]">{t("heroTitle2")}</span>
             <br />
             {t("heroTitle3")}

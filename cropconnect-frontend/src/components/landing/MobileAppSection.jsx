@@ -40,9 +40,9 @@ export default function MobileAppSection() {
                 <span className="live-dot" />
               </div>
               <div className="mt-4 space-y-2">
-                <Row icon={Droplets} label="Soil moisture" value="--" tone="#1B4332" />
-                <Row icon={Thermometer} label="Temperature" value="--" tone="#E07A5F" />
-                <Row icon={Bell} label="Alert" value="--" tone="#52796F" />
+                <Row icon={Droplets} label="Soil moisture" value="42%" tone="#1B4332" />
+                <Row icon={Thermometer} label="Temperature" value="28C" tone="#E07A5F" />
+                <Row icon={Bell} label="Alert" value="Irrigate soon" tone="#52796F" />
               </div>
             </div>
           </div>
@@ -78,7 +78,7 @@ export default function MobileAppSection() {
             <div className="p-4 rounded-xl bg-[#F4F1EA] border border-[#D5D1C5]">
               <Smartphone className="w-5 h-5 text-[#E07A5F]" />
               <div className="mt-2 font-display text-xl text-[#1A201C]">Live backend</div>
-              <div className="text-xs text-[#1A201C]/60">shows -- until data exists</div>
+              <div className="text-xs text-[#1A201C]/60">demo values until data exists</div>
             </div>
           </div>
         </div>

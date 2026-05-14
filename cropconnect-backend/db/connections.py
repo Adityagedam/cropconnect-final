@@ -1,5 +1,6 @@
 import hashlib
 import threading
+import time
 from contextlib import contextmanager
 from typing import Any
 
@@ -8,7 +9,7 @@ from mysql.connector import pooling
 
 _db_config: dict[str, Any] = {}
 _farmers_database = "farmers"
-_mysql_pool_size = 5
+_mysql_pool_size = 15
 _main_db_pool = None
 _farmers_db_pools: dict[str, pooling.MySQLConnectionPool] = {}
 _main_db_pool_lock = threading.Lock()
@@ -25,6 +26,17 @@ def configure_connections(db_config: dict[str, Any], farmers_database: str, mysq
     _mysql_pool_size = max(1, int(mysql_pool_size))
 
 
+def _get_pooled_connection(pool: pooling.MySQLConnectionPool):
+    last_error = None
+    for _attempt in range(4):
+        try:
+            return pool.get_connection()
+        except mysql.connector.errors.PoolError as exc:
+            last_error = exc
+            time.sleep(0.15)
+    raise last_error
+
+
 @contextmanager
 def get_connection():
     global _main_db_pool
@@ -37,7 +49,7 @@ def get_connection():
                     pool_reset_session=True,
                     **_db_config,
                 )
-    conn = _main_db_pool.get_connection()
+    conn = _get_pooled_connection(_main_db_pool)
     try:
         yield conn
     finally:
@@ -67,7 +79,7 @@ def get_farmers_connection(database: str | None = None):
                     pool_reset_session=True,
                     **{**_db_config, "database": pool_key},
                 )
-    conn = _farmers_db_pools[pool_key].get_connection()
+    conn = _get_pooled_connection(_farmers_db_pools[pool_key])
     try:
         yield conn
     finally:

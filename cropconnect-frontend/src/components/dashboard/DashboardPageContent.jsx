@@ -24,6 +24,7 @@ import {
   Zap,
 } from "lucide-react";
 import { toast } from "sonner";
+import { INDIA_STATES, getDistrictOptions, getPlaceOptions } from "../../lib/indiaLocations";
 import CropPlanner from "../../pages/CropPlanner";
 import LanguageSelect, { languages } from "../LanguageSelect";
 import { Button } from "../ui/button";
@@ -34,6 +35,8 @@ import MarketSection from "./MarketSection";
 import PumpSection from "./PumpSection";
 import SensorSection from "./SensorSection";
 import WeatherSection from "./WeatherSection";
+
+const profileSelectClass = "min-w-[190px] max-w-[260px] rounded border border-gray-300 bg-white px-3 py-1 text-right";
 
 export default function DashboardPageContent({ ctx }) {
   const {
@@ -644,6 +647,27 @@ export default function DashboardPageContent({ ctx }) {
         );
 
       case "profile":
+        const editLocationType = (editData.locationType || userData.locationType || "city") === "village" ? "village" : "city";
+        const editState = editData.state || userData.state || "";
+        const editDistrict = editData.district || userData.district || "";
+        const profileDistrictOptions = getDistrictOptions(editState);
+        const profilePlaceOptions = getPlaceOptions(editState, editDistrict);
+        const handleProfileFieldChange = (key, value) => {
+          setEditData((prev) => {
+            const next = { ...prev, [key]: value };
+            if (key === "state") {
+              next.district = "";
+              next.city = "";
+              next.village = "";
+            }
+            if (key === "district" || key === "locationType") {
+              next.city = "";
+              next.village = "";
+            }
+            return next;
+          });
+        };
+
         const handleEditProfile = async () => {
           if (isEditingProfile) {
             const updatedUser = { ...userData, ...editData };
@@ -709,9 +733,10 @@ export default function DashboardPageContent({ ctx }) {
                 {[
                   { label: "Full Name", key: "name", type: "text" },
                   { label: "Email", key: "email", type: "email" },
-                  { label: "State", key: "state", type: "text" },
-                  { label: "District", key: "district", type: "text" },
-                  { label: userData.locationType === "city" ? "City" : "Village", key: userData.locationType === "city" ? "city" : "village", type: "text" },
+                  { label: "State", key: "state", type: "state" },
+                  { label: "Location Type", key: "locationType", type: "locationType" },
+                  { label: "District", key: "district", type: "district" },
+                  { label: editLocationType === "city" ? "City" : "Village", key: editLocationType === "city" ? "city" : "village", type: "place" },
                   { label: "Land Size (acres)", key: "landSize", type: "text" },
                   { label: "Crop Type", key: "cropType", type: "text" },
                   { label: "Farming Type", key: "farmingType", type: "text" },
@@ -722,13 +747,69 @@ export default function DashboardPageContent({ ctx }) {
                   <div key={field.key} className="flex justify-between items-center py-3 border-b" style={{ borderColor: colors.creamDark }}>
                     <span className="font-medium" style={{ color: colors.textDark }}>{field.label}</span>
                     {isEditingProfile ? (
-                      <input
-                        type={field.type}
-                        value={editData[field.key] || ""}
-                        onChange={(e) => setEditData({ ...editData, [field.key]: e.target.value })}
-                        className="px-3 py-1 rounded border border-gray-300 text-right"
-                        style={{ color: colors.textMid }}
-                      />
+                      field.type === "state" ? (
+                        <select
+                          value={editData.state || ""}
+                          onChange={(event) => handleProfileFieldChange("state", event.target.value)}
+                          className={profileSelectClass}
+                          style={{ color: colors.textMid }}
+                        >
+                          <option value="">Select state</option>
+                          {INDIA_STATES.map((state) => (
+                            <option key={state.code} value={state.name}>
+                              {state.name}
+                            </option>
+                          ))}
+                        </select>
+                      ) : field.type === "locationType" ? (
+                        <select
+                          value={editLocationType}
+                          onChange={(event) => handleProfileFieldChange("locationType", event.target.value)}
+                          className={profileSelectClass}
+                          style={{ color: colors.textMid }}
+                        >
+                          <option value="city">City</option>
+                          <option value="village">Village</option>
+                        </select>
+                      ) : field.type === "district" ? (
+                        <select
+                          value={editData.district || ""}
+                          onChange={(event) => handleProfileFieldChange("district", event.target.value)}
+                          disabled={!editState}
+                          className={`${profileSelectClass} disabled:opacity-50`}
+                          style={{ color: colors.textMid }}
+                        >
+                          <option value="">{editState ? "Select district" : "Select state first"}</option>
+                          {profileDistrictOptions.map((district) => (
+                            <option key={district} value={district}>
+                              {district}
+                            </option>
+                          ))}
+                        </select>
+                      ) : field.type === "place" ? (
+                        <select
+                          value={editData[field.key] || ""}
+                          onChange={(event) => handleProfileFieldChange(field.key, event.target.value)}
+                          disabled={!editDistrict}
+                          className={`${profileSelectClass} disabled:opacity-50`}
+                          style={{ color: colors.textMid }}
+                        >
+                          <option value="">{editDistrict ? `Select ${field.label.toLowerCase()}` : "Select district first"}</option>
+                          {profilePlaceOptions.map((place) => (
+                            <option key={place} value={place}>
+                              {place}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          type={field.type}
+                          value={editData[field.key] || ""}
+                          onChange={(e) => setEditData({ ...editData, [field.key]: e.target.value })}
+                          className="px-3 py-1 rounded border border-gray-300 text-right"
+                          style={{ color: colors.textMid }}
+                        />
+                      )
                     ) : (
                       <span data-dynamic-value="true" style={{ color: colors.textMid }}>{displayValue(userData[field.key])}</span>
                     )}

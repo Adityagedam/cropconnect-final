@@ -73,7 +73,7 @@ export default function ContactSection() {
           <div className="mt-10 space-y-5">
             <InfoRow icon={Mail} label="Email" value="cropconnectco@gmail.com" />
             <InfoRow icon={Phone} label="Phone" value="+91 94791 87552" />
-            <InfoRow icon={MapPin} label="Based in" value="--" />
+            <InfoRow icon={MapPin} label="Based in" value="Maharashtra, India" />
           </div>
         </div>
 
@@ -88,7 +88,7 @@ export default function ContactSection() {
               <Field label="Full name" required>
                 <Input
                   data-testid="enquiry-name"
-                  placeholder="--"
+                  placeholder="Ravi Patil"
                   value={form.name}
                   onChange={(e) => update("name", e.target.value)}
                   className="h-11 bg-[#FDFBF7] border-[#D5D1C5] focus-visible:ring-[#1B4332]"
@@ -98,7 +98,7 @@ export default function ContactSection() {
                 <Input
                   data-testid="enquiry-email"
                   type="email"
-                  placeholder="--"
+                  placeholder="ravi@example.com"
                   value={form.email}
                   onChange={(e) => update("email", e.target.value)}
                   className="h-11 bg-[#FDFBF7] border-[#D5D1C5] focus-visible:ring-[#1B4332]"
@@ -107,7 +107,7 @@ export default function ContactSection() {
               <Field label="Phone">
                 <Input
                   data-testid="enquiry-phone"
-                  placeholder="--"
+                  placeholder="+91 98765 43210"
                   value={form.phone}
                   onChange={(e) => update("phone", e.target.value)}
                   className="h-11 bg-[#FDFBF7] border-[#D5D1C5] focus-visible:ring-[#1B4332]"
@@ -116,7 +116,7 @@ export default function ContactSection() {
               <Field label="Organization / Farm">
                 <Input
                   data-testid="enquiry-organization"
-                  placeholder="--"
+                  placeholder="Patil Farms"
                   value={form.organization}
                   onChange={(e) => update("organization", e.target.value)}
                   className="h-11 bg-[#FDFBF7] border-[#D5D1C5] focus-visible:ring-[#1B4332]"
@@ -127,7 +127,7 @@ export default function ContactSection() {
             <Field label="How can we help?" required>
               <Textarea
                 data-testid="enquiry-message"
-                placeholder="--"
+                placeholder="I want to connect soil sensors and pump control for my farm."
                 rows={5}
                 value={form.message}
                 onChange={(e) => update("message", e.target.value)}

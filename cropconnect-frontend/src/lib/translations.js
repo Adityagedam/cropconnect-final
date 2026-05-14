@@ -35,7 +35,12 @@ export const translations = {
     explore: "Explore the platform",
     talkTeam: "Talk to the team",
     heroFacts: ["AI-assisted crop planning", "SIM800L telemetry path", "Per-device API keys"],
-    impact: ["live readings shown when ESP32 packets arrive", "AI translation can be enabled from the backend", "sensor telemetry with dashboard alerts", "setup cost for the farmer: --"],
+    impact: [
+      "core readings shown in the dashboard",
+      "Indian languages listed for farmer access",
+      "support response target for enquiries",
+      "low-cost field node foundation",
+    ],
     prototypeEyebrow: "The hardware",
     prototypeTitle: "Real prototype.",
     prototypeTitleItalic: " Real field.",

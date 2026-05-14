@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     mysql_password: str = ""
     mysql_database: str = "cropconnect"
     mysql_farmers_database: str = "farmers"
-    mysql_pool_size: int = 5
+    mysql_pool_size: int = 15
     crop_data_secret_key: str
     crop_auth_token_secret: str
     esp32_api_key: str = ""

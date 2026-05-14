@@ -10,6 +10,11 @@ from config import settings
 from http_client import request_json
 from logging_config import configure_logging
 
+try:
+    from deep_translator import GoogleTranslator
+except ImportError:  # pragma: no cover - exercised only when dependency install fails
+    GoogleTranslator = None
+
 logger = configure_logging()
 
 LANGUAGE_NAMES = {
@@ -134,6 +139,17 @@ MULTILINGUAL_PLANT_SOIL_TERMS = {
 
 TRANSLATION_CACHE_MAX_ITEMS = 1000
 TRANSLATION_CACHE: OrderedDict[str, str] = OrderedDict()
+OPENAI_TRANSLATION_UNAVAILABLE = False
+TRANSLATOR_LANGUAGE_CODES = {
+    "english": "en",
+    "hindi": "hi",
+    "marathi": "mr",
+    "telugu": "te",
+    "tamil": "ta",
+    "bengali": "bn",
+    "kannada": "kn",
+}
+TRANSLATOR_BATCH_SIZE = 20
 
 
 def raise_public_error(status_code: int, detail: str, context: str, exc: Exception) -> None:
@@ -217,6 +233,39 @@ def selected_language_name(language: str | None) -> str:
     return LANGUAGE_NAMES.get(code, LANGUAGE_NAMES["en"])
 
 
+def normalized_translation_target(target_lang: str) -> str:
+    target = (target_lang or "en").lower().strip()
+    target = target.split("-", 1)[0]
+    return TRANSLATOR_LANGUAGE_CODES.get(target, target)
+
+
+def translate_texts_with_library(texts: list[str], target_lang: str) -> list[str]:
+    target = normalized_translation_target(target_lang)
+    if target in ("en", "english"):
+        return texts
+    if GoogleTranslator is None:
+        raise RuntimeError("deep-translator is not installed")
+
+    translator = GoogleTranslator(source="auto", target=target)
+    translated = list(texts)
+    indexed_items = [(index, text) for index, text in enumerate(texts) if text and text.strip()]
+
+    for start in range(0, len(indexed_items), TRANSLATOR_BATCH_SIZE):
+        chunk = indexed_items[start : start + TRANSLATOR_BATCH_SIZE]
+        chunk_texts = [text for _index, text in chunk]
+        try:
+            translated_chunk = translator.translate_batch(chunk_texts)
+            if not isinstance(translated_chunk, list) or len(translated_chunk) != len(chunk_texts):
+                raise ValueError("Translator library returned an unexpected response shape")
+        except Exception:
+            translated_chunk = [translator.translate(text) for text in chunk_texts]
+
+        for (index, source), translated_text in zip(chunk, translated_chunk, strict=False):
+            translated[index] = str(translated_text or source)
+
+    return translated
+
+
 def classify_farm_scope_with_ai(message: str, language: str = "en") -> bool:
     if not settings.openai_api_key:
         return is_plant_or_soil_question(message)
@@ -260,6 +309,8 @@ def classify_farm_scope_with_ai(message: str, language: str = "en") -> bool:
 
 
 def translate_texts_with_ai(texts: list[str], target_lang: str) -> list[str]:
+    global OPENAI_TRANSLATION_UNAVAILABLE
+
     target = target_lang.lower().strip()
     if target in ("en", "english"):
         return texts
@@ -284,43 +335,51 @@ def translate_texts_with_ai(texts: list[str], target_lang: str) -> list[str]:
     missing = [text for text in texts if text and cached_value(text) is None]
 
     if missing:
-        if not settings.openai_api_key:
-            raise HTTPException(status_code=500, detail="OpenAI API key not configured")
+        translated_items: list[str] | None = None
 
-        prompt = (
-            "Translate this JSON array of CropConnect farming website UI strings from English "
-            f"to {target_lang}. Preserve placeholders like {{name}}, {{moisture}}, {{temp}}, HTML tags, "
-            "numbers, punctuation, and product names. Return only a JSON array of translated strings "
-            "in the same order, with no explanation.\n\n"
-            + json.dumps(missing, ensure_ascii=False)
-        )
-
-        try:
-            response = request_json(
-                "https://api.openai.com/v1/chat/completions",
-                payload={
-                    "model": settings.openai_model,
-                    "messages": [
-                        {
-                            "role": "system",
-                            "content": "You are a precise UI localization engine. Output valid JSON only.",
-                        },
-                        {"role": "user", "content": prompt},
-                    ],
-                    "temperature": 0,
-                },
-                headers={"Authorization": f"Bearer {settings.openai_api_key}"},
+        if settings.openai_api_key and not OPENAI_TRANSLATION_UNAVAILABLE:
+            prompt = (
+                "Translate this JSON array of CropConnect farming website UI strings from English "
+                f"to {target_lang}. Preserve placeholders like {{name}}, {{moisture}}, {{temp}}, HTML tags, "
+                "numbers, punctuation, and product names. Return only a JSON array of translated strings "
+                "in the same order, with no explanation.\n\n"
+                + json.dumps(missing, ensure_ascii=False)
             )
-            raw = response["choices"][0]["message"]["content"].strip()
-            translated_items = json.loads(raw)
-            if not isinstance(translated_items, list) or len(translated_items) != len(missing):
-                raise ValueError("Translator returned an unexpected response shape")
 
-            for source, translated in zip(missing, translated_items, strict=False):
-                remember_translation(source, str(translated))
-        except HTTPException:
-            raise
-        except Exception as exc:
-            raise_public_error(502, "Translation failed", "Translation request failed", exc)
+            try:
+                response = request_json(
+                    "https://api.openai.com/v1/chat/completions",
+                    payload={
+                        "model": settings.openai_model,
+                        "messages": [
+                            {
+                                "role": "system",
+                                "content": "You are a precise UI localization engine. Output valid JSON only.",
+                            },
+                            {"role": "user", "content": prompt},
+                        ],
+                        "temperature": 0,
+                    },
+                    headers={"Authorization": f"Bearer {settings.openai_api_key}"},
+                    attempts=1,
+                )
+                raw = response["choices"][0]["message"]["content"].strip()
+                parsed_items = json.loads(raw)
+                if not isinstance(parsed_items, list) or len(parsed_items) != len(missing):
+                    raise ValueError("Translator returned an unexpected response shape")
+                translated_items = [str(item) for item in parsed_items]
+            except Exception as exc:
+                logger.warning("OpenAI translation unavailable, using translator library fallback: %s", exc)
+                if "429" in str(exc) or "quota" in str(exc).lower():
+                    OPENAI_TRANSLATION_UNAVAILABLE = True
+
+        if translated_items is None:
+            try:
+                translated_items = translate_texts_with_library(missing, target)
+            except Exception as exc:
+                raise_public_error(502, "Translation failed", "Translation library failed", exc)
+
+        for source, translated in zip(missing, translated_items, strict=False):
+            remember_translation(source, str(translated))
 
     return [cached_value(text) or text for text in texts]

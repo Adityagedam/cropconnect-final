@@ -127,7 +127,6 @@ export function useSensorData({ protectedFetch, sensorDeviceId, pollIntervalMs }
         const applied = applyBackendReadings(payload);
         if (!applied) {
           const errorMessage = payload?.message || "Waiting for ESP32 readings";
-          console.warn("ESP32 sensor payload not applied:", payload);
           addApiLog("warning", errorMessage);
           setSensorConnection((prev) => ({
             ...prev,

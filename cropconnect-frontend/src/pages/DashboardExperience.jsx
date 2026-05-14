@@ -232,6 +232,7 @@ export default function Dashboard() {
   const alertToastIntervalRef = useRef(null);
   const persistedFarmLoadedRef = useRef(false);
   const snapshotSaveInFlightRef = useRef(false);
+  const sensorApiKeyAutoLoadRef = useRef("");
   const isDark = theme === "dark";
   const colors = isDark ? darkColors : lightColors;
   const copy = dashboardCopy.en;
@@ -502,6 +503,8 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!userLoaded || userData.sensorSetupComplete || !userData.sensorDeviceId || sensorApiKey || sensorApiKeyLoading) return;
+    if (sensorApiKeyAutoLoadRef.current === userData.sensorDeviceId) return;
+    sensorApiKeyAutoLoadRef.current = userData.sensorDeviceId;
     loadSensorApiKey();
   }, [
     loadSensorApiKey,
