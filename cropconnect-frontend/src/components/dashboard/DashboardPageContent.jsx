@@ -547,6 +547,7 @@ export default function DashboardPageContent({ ctx }) {
               dashboardSensorData={sensorData}
               dashboardSensorConnection={sensorConnection}
               userProfile={userData}
+              protectedFetch={protectedFetch}
               language={language}
               embedded
             />

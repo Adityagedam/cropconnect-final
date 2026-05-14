@@ -35,9 +35,9 @@ const normalizeSensorData = (value = {}) => ({
   potassium: toNumberOrNull(value.potassium),
 });
 
-const readProfile = async () => {
+const readProfile = async (request = fetch) => {
   const cachedUser = readSessionUser();
-  const response = await fetch(`${API}/auth/profile`, {
+  const response = await request(`${API}/auth/profile`, {
     credentials: "include",
     headers: authHeaders(),
   });
@@ -49,8 +49,8 @@ const readProfile = async () => {
   return payload.user || {};
 };
 
-const readLatestSensors = async (deviceId) => {
-  const response = await fetch(`${API}/sensors/latest?device_id=${encodeURIComponent(deviceId)}`, {
+const readLatestSensors = async (deviceId, request = fetch) => {
+  const response = await request(`${API}/sensors/latest?device_id=${encodeURIComponent(deviceId)}`, {
     credentials: "include",
     headers: authHeaders(),
   });
@@ -98,6 +98,7 @@ export default function CropPlanner({
   sensorData: dashboardSensorData,
   sensorConnection: dashboardSensorConnection,
   userProfile: dashboardUserProfile,
+  protectedFetch,
 }) {
   const [sensorData, setSensorData] = useState(() => normalizeSensorData(dashboardSensorData));
   const [sensorConnection, setSensorConnection] = useState({
@@ -144,7 +145,8 @@ export default function CropPlanner({
     setLoadingSensors(true);
     setError("");
     try {
-      const user = userProfile?.sensorDeviceId ? userProfile : await readProfile();
+      const request = protectedFetch || fetch;
+      const user = userProfile?.sensorDeviceId ? userProfile : await readProfile(request);
       const deviceId = user.sensorDeviceId || "";
       setUserProfile(user);
       setProfileLoaded(true);
@@ -153,7 +155,7 @@ export default function CropPlanner({
         setSensorConnection({ status: "unavailable", error: "No sensor device configured", deviceId: "", source: "unavailable" });
         return "";
       }
-      const latest = await readLatestSensors(deviceId);
+      const latest = await readLatestSensors(deviceId, request);
       setSensorData(latest.data);
       setSensorConnection(latest.connection);
       return latest.connection.deviceId || deviceId;
@@ -165,7 +167,7 @@ export default function CropPlanner({
     } finally {
       setLoadingSensors(false);
     }
-  }, [dashboardSensorConnection?.deviceId, dashboardSensorData, sensorConnection.deviceId, userProfile]);
+  }, [dashboardSensorConnection?.deviceId, dashboardSensorData, protectedFetch, sensorConnection.deviceId, userProfile]);
 
   const loadRecommendations = useCallback(async (deviceIdOverride = "") => {
     const deviceId = deviceIdOverride || sensorConnection.deviceId || userProfile?.sensorDeviceId || "";
@@ -185,7 +187,8 @@ export default function CropPlanner({
         device_id: deviceId,
         sensor_source: sensorConnection.source || "",
       });
-      let response = await fetch(`${API}/crops/recommend`, {
+      const request = protectedFetch || fetch;
+      let response = await request(`${API}/crops/recommend`, {
         method: "POST",
         credentials: "include",
         headers: {
@@ -196,7 +199,7 @@ export default function CropPlanner({
         body: requestBody,
       });
       if (response.status === 403 && /csrf/i.test(await response.clone().text().catch(() => ""))) {
-        response = await fetch(`${API}/crops/recommend`, {
+        response = await request(`${API}/crops/recommend`, {
           method: "POST",
           credentials: "include",
           headers: {
@@ -229,7 +232,7 @@ export default function CropPlanner({
     } finally {
       setLoadingRecommendations(false);
     }
-  }, [selectedGoal, sensorConnection.deviceId, sensorConnection.source, userProfile?.sensorDeviceId]);
+  }, [protectedFetch, selectedGoal, sensorConnection.deviceId, sensorConnection.source, userProfile?.sensorDeviceId]);
 
   useEffect(() => {
     refreshSensors();
