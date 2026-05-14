@@ -1,0 +1,11 @@
+{
+  "installCommand": "cd cropconnect-frontend && npm install",
+  "buildCommand": "cd cropconnect-frontend && npm run build",
+  "outputDirectory": "cropconnect-frontend/build",
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
