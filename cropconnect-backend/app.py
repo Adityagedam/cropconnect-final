@@ -1,6 +1,7 @@
 # FastAPI application creation, middleware, and router registration.
 import secrets
 import uuid
+import re
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, Request
@@ -48,6 +49,13 @@ FRONTEND_ORIGINS = [
 ]
 if "*" in FRONTEND_ORIGINS:
     raise RuntimeError("FRONTEND_ORIGINS cannot contain '*' when credentialed auth cookies are enabled")
+FRONTEND_ORIGIN_REGEX = r"^https://[a-z0-9-]+(?:-[a-z0-9-]+)?\.vercel\.app$"
+FRONTEND_ORIGIN_PATTERN = re.compile(FRONTEND_ORIGIN_REGEX)
+
+
+def is_trusted_frontend_origin(origin: str) -> bool:
+    normalized = (origin or "").rstrip("/")
+    return normalized in FRONTEND_ORIGINS or bool(FRONTEND_ORIGIN_PATTERN.fullmatch(normalized))
 
 CSRF_EXEMPT_PATHS = {
     "/api/auth/signup",
@@ -89,7 +97,7 @@ async def add_security_response_headers(request: Request, call_next):
 async def reject_untrusted_browser_origins(request: Request, call_next):
     if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
         origin = (request.headers.get("origin") or "").rstrip("/")
-        if origin and origin not in FRONTEND_ORIGINS:
+        if origin and not is_trusted_frontend_origin(origin):
             return PlainTextResponse("Origin is not allowed", status_code=403)
         auth_cookie = request.cookies.get(AUTH_COOKIE_NAME)
         if auth_cookie and request.url.path not in CSRF_EXEMPT_PATHS:
@@ -103,6 +111,7 @@ async def reject_untrusted_browser_origins(request: Request, call_next):
 app.add_middleware(
     CORSMiddleware,
     allow_origins=FRONTEND_ORIGINS,
+    allow_origin_regex=FRONTEND_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-API-Key", "X-CSRF-Token"],
