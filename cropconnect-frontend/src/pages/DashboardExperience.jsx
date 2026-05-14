@@ -915,6 +915,7 @@ export default function Dashboard() {
     numericOrNull,
     openTimerModal,
     percentValue,
+    protectedFetch,
     pumps,
     pumpUpdating,
     removeTimer,

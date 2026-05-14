@@ -80,6 +80,7 @@ export default function DashboardPageContent({ ctx }) {
     numericOrNull,
     openTimerModal,
     percentValue,
+    protectedFetch,
     pumps,
     pumpUpdating,
     removeTimer,
@@ -544,8 +545,8 @@ export default function DashboardPageContent({ ctx }) {
           <div className="-m-3 sm:-m-5 md:-m-6">
             <CropPlanner
               key={language}
-              dashboardSensorData={sensorData}
-              dashboardSensorConnection={sensorConnection}
+              sensorData={sensorData}
+              sensorConnection={sensorConnection}
               userProfile={userData}
               protectedFetch={protectedFetch}
               language={language}
