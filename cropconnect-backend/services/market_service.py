@@ -135,7 +135,7 @@ def data_gov_market_records(state: str, district: str = "", commodity: str = "")
         params["filters[Commodity]"] = commodity
 
     url = f"{settings.data_gov_market_resource_url}?{urllib.parse.urlencode(params)}"
-    payload = request_json(url)
+    payload = request_json(url, attempts=1, timeout_seconds=8)
     records = payload.get("records") if isinstance(payload, dict) else []
     return [record for record in records if isinstance(record, dict)] if isinstance(records, list) else []
 

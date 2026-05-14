@@ -16,6 +16,7 @@ def request_json(
     verify_ssl: bool = True,
     attempts: int = 3,
     retry_delay_seconds: float = 0.4,
+    timeout_seconds: float = 15,
 ) -> dict[str, Any]:
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
     req = urllib.request.Request(
@@ -31,7 +32,7 @@ def request_json(
 
     for attempt in range(1, max_attempts + 1):
         try:
-            with urllib.request.urlopen(req, timeout=15, context=context) as response:
+            with urllib.request.urlopen(req, timeout=timeout_seconds, context=context) as response:
                 return json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             detail = exc.reason
