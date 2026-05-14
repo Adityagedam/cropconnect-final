@@ -786,4 +786,6 @@ export default function DashboardPageContent({ ctx }) {
         return null;
     }
   };
+
+  return renderPage();
 }

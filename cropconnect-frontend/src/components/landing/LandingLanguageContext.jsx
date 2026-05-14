@@ -8,8 +8,12 @@ const LanguageContext = createContext(null);
 
 const SKIP_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEXTAREA", "INPUT", "SELECT", "OPTION", "CODE", "PRE"]);
 const TRANSLATABLE_ATTRIBUTES = ["placeholder", "title", "aria-label"];
-const BRAND_TEXT = new Set(["CropConnect"]);
+const BRAND_TEXT = new Set(["CropConnect", "Crop", "Connect"]);
 const TRANSLATION_CACHE_MAX_ITEMS = 500;
+const TRANSLATION_BATCH_MAX_ITEMS = 35;
+const TRANSLATION_BATCH_MAX_CHARS = 10_000;
+const TRANSLATION_CACHE_STORAGE_KEY = "cropconnect-cache-v2";
+const TRANSLATION_FALLBACK_URL = (import.meta.env.VITE_PUBLIC_TRANSLATION_FALLBACK_URL || "").trim().replace(/\/+$/, "");
 const AUTO_TRANSLATE_ROOT = "[data-auto-translate-root='true'], [data-public-translate-root='true']";
 const SKIP_TRANSLATE_SELECTOR = [
   "[data-no-translate='true']",
@@ -51,6 +55,68 @@ const mergeTranslationCache = (existingCache, targetLang, additions) => ({
     ...additions,
   }),
 });
+
+const chunkTranslationTexts = (texts = []) => {
+  const chunks = [];
+  let current = [];
+  let currentCharacters = 0;
+
+  texts.forEach((text) => {
+    const characters = String(text || "").length;
+    if (!text) return;
+    if (
+      current.length >= TRANSLATION_BATCH_MAX_ITEMS ||
+      (current.length > 0 && currentCharacters + characters > TRANSLATION_BATCH_MAX_CHARS)
+    ) {
+      chunks.push(current);
+      current = [];
+      currentCharacters = 0;
+    }
+    current.push(text);
+    currentCharacters += characters;
+  });
+
+  if (current.length) chunks.push(current);
+  return chunks;
+};
+
+const readTranslatedItems = (data, sourceTexts) => {
+  if (Array.isArray(data?.translations)) return data.translations.map((item) => String(item || ""));
+  if (Array.isArray(data?.translatedText)) return data.translatedText.map((item) => String(item || ""));
+  if (typeof data?.translated === "string" && sourceTexts.length === 1) return [data.translated];
+  if (typeof data?.translatedText === "string" && sourceTexts.length === 1) return [data.translatedText];
+  return null;
+};
+
+const translateWithFallbackEndpoint = async (texts, targetLang) => {
+  if (!TRANSLATION_FALLBACK_URL || !texts?.length) return null;
+
+  try {
+    const compatibleResponse = await axios.post(TRANSLATION_FALLBACK_URL, {
+      texts,
+      target_lang: targetLang,
+    });
+    const compatibleItems = readTranslatedItems(compatibleResponse.data, texts);
+    if (compatibleItems?.length === texts.length) return compatibleItems;
+  } catch {
+    // Try a LibreTranslate-style payload next.
+  }
+
+  try {
+    const libreResponse = await axios.post(TRANSLATION_FALLBACK_URL, {
+      q: texts,
+      source: "auto",
+      target: targetLang,
+      format: "text",
+    });
+    const libreItems = readTranslatedItems(libreResponse.data, texts);
+    if (libreItems?.length === texts.length) return libreItems;
+  } catch {
+    return null;
+  }
+
+  return null;
+};
 
 const nearestSkipsTranslation = (node) => {
   const element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
@@ -208,7 +274,8 @@ export function LandingLanguageProvider({ children }) {
   // Cache for AI translations to avoid redundant API calls
   const [cache, setCache] = useState(() => {
     try {
-      const storedCache = JSON.parse(localStorage.getItem("cropconnect-cache") || "{}");
+      localStorage.removeItem("cropconnect-cache");
+      const storedCache = JSON.parse(localStorage.getItem(TRANSLATION_CACHE_STORAGE_KEY) || "{}");
       return Object.fromEntries(
         Object.entries(storedCache).map(([lang, entries]) => [lang, boundedLanguageCache(entries)])
       );
@@ -219,7 +286,7 @@ export function LandingLanguageProvider({ children }) {
 
   // Persist cache to localStorage whenever it changes
   useEffect(() => {
-    localStorage.setItem("cropconnect-cache", JSON.stringify(cache));
+    localStorage.setItem(TRANSLATION_CACHE_STORAGE_KEY, JSON.stringify(cache));
   }, [cache]);
 
   const translateText = useCallback(async (text, targetLang = language) => {
@@ -242,36 +309,60 @@ export function LandingLanguageProvider({ children }) {
       return translated;
     } catch (err) {
       console.error("AI Translation failed:", err);
-      return text; // Fallback to English
+      const fallbackItems = await translateWithFallbackEndpoint([text], targetLang);
+      const translated = fallbackItems?.[0] || text;
+      if (translated !== text) {
+        setCache((prev) => mergeTranslationCache(prev, targetLang, { [text]: translated }));
+      }
+      return translated;
     }
   }, [cache, language]);
 
   const translateTexts = useCallback(async (texts, targetLang = language) => {
     if (!texts?.length || targetLang === "en") return texts;
-    if (!publicTranslationEnabled) return texts;
 
     const missing = texts.filter((text) => text && !cache[targetLang]?.[text]);
     if (!missing.length) {
       return texts.map((text) => cache[targetLang]?.[text] || text);
     }
 
-    try {
-      const response = await axios.post(`${API}/utils/translate`, {
-        texts: missing,
-        target_lang: targetLang
-      });
-      const translatedItems = response.data.translations || [];
-      const translatedMap = missing.reduce((acc, source, index) => {
-        acc[source] = translatedItems[index] || source;
-        return acc;
-      }, {});
+    if (!publicTranslationEnabled) return texts;
 
+    try {
+      const chunks = chunkTranslationTexts(missing);
+      const translatedMaps = await Promise.all(chunks.map(async (chunk) => {
+        let translatedItems = [];
+        try {
+          const response = await axios.post(`${API}/utils/translate`, {
+            texts: chunk,
+            target_lang: targetLang
+          });
+          translatedItems = response.data.translations || [];
+        } catch (err) {
+          console.error("AI batch translation failed:", err);
+          translatedItems = await translateWithFallbackEndpoint(chunk, targetLang) || [];
+        }
+        const chunkMap = {};
+        chunk.forEach((source, index) => {
+          chunkMap[source] = translatedItems[index] || source;
+        });
+        setCache((prev) => mergeTranslationCache(prev, targetLang, chunkMap));
+        return chunkMap;
+      }));
+
+      const translatedMap = Object.assign({}, ...translatedMaps);
       setCache((prev) => mergeTranslationCache(prev, targetLang, translatedMap));
 
       return texts.map((text) => translatedMap[text] || cache[targetLang]?.[text] || text);
     } catch (err) {
       console.error("AI batch translation failed:", err);
-      return texts;
+      const fallbackItems = await translateWithFallbackEndpoint(missing, targetLang) || [];
+      const fallbackMap = {};
+      missing.forEach((source, index) => {
+        fallbackMap[source] = fallbackItems[index] || source;
+      });
+      setCache((prev) => mergeTranslationCache(prev, targetLang, fallbackMap));
+      return texts.map((text) => fallbackMap[text] || cache[targetLang]?.[text] || text);
     }
   }, [cache, language]);
 

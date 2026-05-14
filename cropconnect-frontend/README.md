@@ -69,6 +69,7 @@ src/
 ## Production setup
 - Set `VITE_BACKEND_URL` to your deployed FastAPI backend URL before building.
 - Set `VITE_PUBLIC_TRANSLATION_ENABLED=true` only when backend translation is enabled and rate limited. The auto-translator scans the whole app while skipping form inputs, code blocks, API keys, device IDs, email addresses, and marked private values.
+- Optionally set `VITE_PUBLIC_TRANSLATION_FALLBACK_URL` to a second translator endpoint. The frontend first tries `/api/utils/translate`, then falls back to that URL using a CropConnect-compatible payload and a LibreTranslate-style payload.
 - New signups open a sensor setup flow. The generated `sensorDeviceId` must be used by ESP32 nodes when posting telemetry.
 - Contact enquiries post to `/api/enquiries`; if SMTP is not configured, the form opens a pre-filled email to `cropconnectco@gmail.com`.
 - AI chat posts to `/api/ai/chat`; configure `OPENAI_API_KEY` on the backend for GPT answers, and `GOOGLE_API_KEY` + `GOOGLE_CSE_ID` for Google search context.
