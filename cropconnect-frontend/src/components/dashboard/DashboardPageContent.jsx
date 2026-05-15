@@ -418,11 +418,11 @@ export default function DashboardPageContent({ ctx }) {
       case "notifications":
         const notificationItems = [
           ...activeSensorAlerts.map((alert) => ({
-            icon: alert.icon,
+            icon: alert.icon || AlertTriangle,
             title: alert.title,
             body: alert.body,
             tone: alert.tone === "critical" ? colors.red : colors.terracotta,
-            time: alert.time,
+            time: alert.time || "Now",
           })),
         ];
 
