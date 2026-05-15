@@ -312,7 +312,7 @@ def crop_recommend(
         }
 
     try:
-        raw = chat_completion_text(build_crop_recommendation_messages(context), temperature=0.2, max_tokens=1200)
+        raw = chat_completion_text(build_crop_recommendation_messages(context), temperature=0.2, max_tokens=3000)
         parsed = parse_ai_json(raw)
     except HTTPException:
         raise

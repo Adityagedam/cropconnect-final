@@ -215,6 +215,9 @@ def gemini_payload_from_messages(messages: list[dict[str, str]], temperature: fl
         "generationConfig": {
             "temperature": temperature,
             "maxOutputTokens": max_tokens,
+            "thinkingConfig": {
+                "thinkingBudget": 0,
+            },
         },
     }
     if system_parts:
@@ -415,7 +418,7 @@ def translate_texts_with_ai(texts: list[str], target_lang: str) -> list[str]:
                     temperature=0,
                     max_tokens=4000,
                 )
-                parsed_items = json.loads(raw)
+                parsed_items = parse_ai_json(raw)
                 if not isinstance(parsed_items, list) or len(parsed_items) != len(missing):
                     raise ValueError("Translator returned an unexpected response shape")
                 translated_items = [str(item) for item in parsed_items]

@@ -40,7 +40,7 @@ services:
       PUBLIC_TRANSLATION_ENABLED: "false"
       PUBLIC_RATE_LIMIT_DB_FAIL_OPEN: "true"
       GEMINI_API_KEY: ""
-      GEMINI_MODEL: gemini-1.5-flash
+      GEMINI_MODEL: gemini-2.5-flash
       DATA_GOV_API_KEY: ""
     command: >
       sh -c "pip install --no-cache-dir -r requirements.txt &&

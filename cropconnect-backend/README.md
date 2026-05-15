@@ -43,7 +43,7 @@ export CONTACT_TO_EMAIL=cropconnectco@gmail.com
 export PUBLIC_LANDING_SENSOR_DEVICE_ID=
 export FARM_TIMER_UTC_OFFSET_MINUTES=330
 export GEMINI_API_KEY=your_gemini_api_key
-export GEMINI_MODEL=gemini-1.5-flash
+export GEMINI_MODEL=gemini-2.5-flash
 export GOOGLE_API_KEY=your_google_api_key
 export GOOGLE_CSE_ID=your_google_cse_id
 export DATA_GOV_API_KEY=your_data_gov_api_key
@@ -270,7 +270,7 @@ TRUST_PROXY_HEADERS=false
 PASSWORD_RESET_TOKEN_TTL_MINUTES=30
 FARM_TIMER_UTC_OFFSET_MINUTES=330
 GEMINI_API_KEY=
-GEMINI_MODEL=gemini-1.5-flash
+GEMINI_MODEL=gemini-2.5-flash
 ```
 
 Open Arduino Serial Monitor after upload. You should see SIM800L telemetry POSTs, command GETs, and status POSTs.

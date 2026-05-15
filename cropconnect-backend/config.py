@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     auth_cookie_secure: bool = True
     auth_cookie_samesite: str = "none"
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-1.5-flash"
+    gemini_model: str = "gemini-2.5-flash"
     google_api_key: str = ""
     google_cse_id: str = ""
     data_gov_api_key: str = ""
