@@ -108,7 +108,6 @@ export default function CropPlanner({
     source: "",
   });
   const [userProfile, setUserProfile] = useState(() => dashboardUserProfile || {});
-  const [profileLoaded, setProfileLoaded] = useState(() => Boolean(dashboardUserProfile || dashboardSensorData));
   const [selectedGoal, setSelectedGoal] = useState("balanced");
   const [cropRecommendations, setCropRecommendations] = useState([]);
   const [summary, setSummary] = useState("");
@@ -124,13 +123,11 @@ export default function CropPlanner({
   useEffect(() => {
     if (!dashboardUserProfile) return;
     setUserProfile(dashboardUserProfile);
-    setProfileLoaded(true);
   }, [dashboardUserProfile]);
 
   useEffect(() => {
     if (!dashboardSensorData) return;
     setSensorData(normalizeSensorData(dashboardSensorData));
-    setProfileLoaded(true);
     setSensorConnection({
       status: dashboardSensorConnection?.source === "esp32" ? "connected" : "unavailable",
       lastSeen: dashboardSensorConnection?.lastSeen,
@@ -149,7 +146,6 @@ export default function CropPlanner({
       const user = userProfile?.sensorDeviceId ? userProfile : await readProfile(request);
       const deviceId = user.sensorDeviceId || "";
       setUserProfile(user);
-      setProfileLoaded(true);
       if (!deviceId) {
         setSensorData({});
         setSensorConnection({ status: "unavailable", error: "No sensor device configured", deviceId: "", source: "unavailable" });
@@ -160,7 +156,6 @@ export default function CropPlanner({
       setSensorConnection(latest.connection);
       return latest.connection.deviceId || deviceId;
     } catch (err) {
-      setProfileLoaded(true);
       setError(`Could not load live sensor readings: ${err.message}`);
       setSensorConnection((prev) => ({ ...prev, status: "error", error: err.message }));
       return "";
@@ -241,28 +236,6 @@ export default function CropPlanner({
       if (interval) clearInterval(interval);
     };
   }, [dashboardSensorData, refreshSensors]);
-
-  useEffect(() => {
-    if (!profileLoaded) return;
-    const deviceId = sensorConnection.deviceId || userProfile?.sensorDeviceId || "";
-    if (!deviceId) {
-      setCropRecommendations([]);
-      setSummary(EMPTY_DISPLAY);
-      setError("");
-      return;
-    }
-    loadRecommendations();
-  }, [
-    profileLoaded,
-    selectedGoal,
-    sensorConnection.deviceId,
-    userProfile?.sensorDeviceId,
-    sensorData.moisture,
-    sensorData.humidity,
-    sensorData.temperature,
-    sensorData.ph,
-    loadRecommendations,
-  ]);
 
   const suitableCrops = useMemo(
     () => cropRecommendations.filter((crop) => parseInt(crop.fit || "0", 10) >= 70),
@@ -351,7 +324,11 @@ export default function CropPlanner({
                 {planningGoals.map((goal) => (
                   <button
                     key={goal.id}
-                    onClick={() => setSelectedGoal(goal.id)}
+                    onClick={() => {
+                      setSelectedGoal(goal.id);
+                      setCropRecommendations([]);
+                      setSummary("Refresh AI to rank crops for this goal.");
+                    }}
                     className={`p-3 rounded-lg border-2 text-left transition ${
                       selectedGoal === goal.id
                         ? "border-green-700 bg-green-100 shadow-sm"
