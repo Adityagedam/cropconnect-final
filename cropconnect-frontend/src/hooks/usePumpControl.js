@@ -14,6 +14,8 @@ export function usePumpControl({ protectedFetch, userLoaded, sensorConnection, s
     pump2: { on: false, appliedOn: null, hardwareConfirmed: false, runtime: 0, schedule: {} },
   });
   const [pumpUpdating, setPumpUpdating] = useState({});
+  const [pumpControlMode, setPumpControlMode] = useState(() => localStorage.getItem("cropconnect-pump-control-mode") || "direct");
+  const [pumpDirectHost, setPumpDirectHost] = useState(() => localStorage.getItem("cropconnect-pump-esp32-host") || "");
   const [scheduledTimers, setScheduledTimers] = useState({ pump1: [], pump2: [] });
   const [showTimerModal, setShowTimerModal] = useState({ show: false, pump: null });
   const [newTimer, setNewTimer] = useState({ hour: "", minute: "00", period: "AM", duration: "", days: [] });
@@ -22,6 +24,35 @@ export function usePumpControl({ protectedFetch, userLoaded, sensorConnection, s
   useEffect(() => {
     pumpsRef.current = pumps;
   }, [pumps]);
+
+  useEffect(() => {
+    localStorage.setItem("cropconnect-pump-control-mode", pumpControlMode);
+  }, [pumpControlMode]);
+
+  useEffect(() => {
+    localStorage.setItem("cropconnect-pump-esp32-host", pumpDirectHost.trim());
+  }, [pumpDirectHost]);
+
+  const pumpCommandUrl = useCallback((pumpId, nextOn) => {
+    const relayNumber = pumpId === "pump2" ? 2 : 1;
+    const command = `${relayNumber}${nextOn ? "on" : "off"}`;
+    const cleanedHost = pumpDirectHost.trim().replace(/^https?:\/\//i, "").replace(/\/+$/g, "");
+    if (!cleanedHost) throw new Error("Add the pump ESP32 IP address first");
+    return `http://${cleanedHost}/${command}`;
+  }, [pumpDirectHost]);
+
+  const sendDirectPumpCommand = useCallback(async (pumpId, nextOn) => {
+    const url = pumpCommandUrl(pumpId, nextOn);
+    try {
+      await fetch(url, { method: "GET", mode: "no-cors", cache: "no-store" });
+      return { message: `Direct command sent to pump ESP32 at ${url}`, usedBrowserFallback: false };
+    } catch {
+      const beacon = new Image();
+      beacon.src = `${url}?t=${Date.now()}`;
+      window.open(url, "_blank", "noopener,noreferrer");
+      return { message: `Opened direct pump URL: ${url}`, usedBrowserFallback: true };
+    }
+  }, [pumpCommandUrl]);
 
   const saveTimersToMysql = useCallback(async (nextTimers) => {
     const response = await protectedFetch(`${API}/farm/timers`, {
@@ -55,28 +86,33 @@ export function usePumpControl({ protectedFetch, userLoaded, sensorConnection, s
     const pumpName = pumpId === "pump1" ? "Pump 1" : "Pump 2";
     setPumpUpdating((prev) => ({ ...prev, [pumpId]: true }));
     try {
-      const data = await updatePumpState(pumpId, nextOn);
+      const data = pumpControlMode === "direct"
+        ? await sendDirectPumpCommand(pumpId, nextOn)
+        : await updatePumpState(pumpId, nextOn);
       setPumps((prev) => ({
         ...prev,
         [pumpId]: {
           ...prev[pumpId],
           on: nextOn,
-          hardwareConfirmed: false,
+          appliedOn: pumpControlMode === "direct" ? nextOn : prev[pumpId].appliedOn,
+          hardwareConfirmed: pumpControlMode === "direct",
           runtime: nextOn ? 0 : prev[pumpId].runtime,
         },
       }));
       const stateText = nextOn ? "ON" : "OFF";
-      if (data.sent_to_esp32) toast.success(`${pumpName} turned ${stateText} through ESP32`);
+      if (pumpControlMode === "direct" && data.usedBrowserFallback) toast.info(data.message);
+      else if (pumpControlMode === "direct") toast.success(`${pumpName} ${stateText} command sent directly to ESP32`);
+      else if (data.sent_to_esp32) toast.success(`${pumpName} turned ${stateText} through ESP32`);
       else toast.info(data.message || `${pumpName} command queued for SIM800L`);
     } catch (error) {
       toast.error(error.message || "Could not reach pump controller");
     } finally {
       setPumpUpdating((prev) => ({ ...prev, [pumpId]: false }));
     }
-  }, [updatePumpState]);
+  }, [pumpControlMode, sendDirectPumpCommand, updatePumpState]);
 
   useEffect(() => {
-    if (!userLoaded) return undefined;
+    if (!userLoaded || pumpControlMode === "direct") return undefined;
     let cancelled = false;
     const loadPumpStates = async () => {
       try {
@@ -111,7 +147,7 @@ export function usePumpControl({ protectedFetch, userLoaded, sensorConnection, s
       cancelled = true;
       clearInterval(interval);
     };
-  }, [pollIntervalMs, protectedFetch, userLoaded]);
+  }, [pollIntervalMs, protectedFetch, pumpControlMode, userLoaded]);
 
   return {
     pumps,
@@ -119,6 +155,10 @@ export function usePumpControl({ protectedFetch, userLoaded, sensorConnection, s
     pumpsRef,
     pumpUpdating,
     setPumpUpdating,
+    pumpControlMode,
+    setPumpControlMode,
+    pumpDirectHost,
+    setPumpDirectHost,
     scheduledTimers,
     setScheduledTimers,
     showTimerModal,

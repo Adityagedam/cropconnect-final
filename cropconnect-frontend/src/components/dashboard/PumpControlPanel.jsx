@@ -210,6 +210,10 @@ export default function PumpControlPanel({
   userData,
   pumps,
   pumpUpdating,
+  pumpControlMode,
+  setPumpControlMode,
+  pumpDirectHost,
+  setPumpDirectHost,
   scheduledTimers,
   showTimerModal,
   newTimer,
@@ -225,6 +229,45 @@ export default function PumpControlPanel({
 }) {
   return (
     <div className="space-y-6">
+      <div className="p-5 rounded-xl bg-white border border-[#e8e3d8] shadow-sm">
+        <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
+          <div>
+            <h3 className="font-semibold" style={{ color: colors.textDark }}>Pump Connection</h3>
+            <p className="mt-1 text-sm" style={{ color: colors.textMid }}>
+              Direct mode sends relay commands from this browser to the pump ESP32 on your WiFi.
+            </p>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <div className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1">
+              <button
+                type="button"
+                onClick={() => setPumpControlMode("direct")}
+                className={`px-3 py-2 text-sm font-medium rounded-md transition-colors ${pumpControlMode === "direct" ? "bg-green-600 text-white shadow-sm" : "text-gray-700 hover:bg-white"}`}
+              >
+                Direct ESP32
+              </button>
+              <button
+                type="button"
+                onClick={() => setPumpControlMode("backend")}
+                className={`px-3 py-2 text-sm font-medium rounded-md transition-colors ${pumpControlMode === "backend" ? "bg-green-600 text-white shadow-sm" : "text-gray-700 hover:bg-white"}`}
+              >
+                Backend Queue
+              </button>
+            </div>
+            <Input
+              value={pumpDirectHost}
+              onChange={(event) => setPumpDirectHost(event.target.value)}
+              placeholder="Pump ESP32 IP, e.g. 192.168.1.45"
+              className="sm:w-72"
+            />
+          </div>
+        </div>
+        {pumpControlMode === "direct" && (
+          <p className="mt-3 text-xs" style={{ color: colors.textLight }}>
+            Your phone/laptop must be on the same WiFi as the pump ESP32. If Chrome blocks the request on the deployed HTTPS site, open the direct command URL from the toast/browser or run the frontend locally on HTTP.
+          </p>
+        )}
+      </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <PumpCard
           id="pump1"

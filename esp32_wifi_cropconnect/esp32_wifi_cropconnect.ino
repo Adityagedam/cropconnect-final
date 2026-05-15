@@ -14,9 +14,11 @@ const char* password = "12345678";
 // CropConnect backend API.
 const char* serverName = "https://cropconnect01-production.up.railway.app/api/telemetry/ingest";
 
-// Use the device id and ESP32 key shown in your CropConnect dashboard.
-const char* DEVICE_ID = "cc_esp32_VMt9EHbKAMTSON0RUTV6MVH--YBUqyZbzdJCsHjLijg";
-const char* API_KEY = "cc_esp32_user_2026_5b91f3c7a8d04e6bb2f9a41c0d73e852_7e4a9d1c";
+// Use the same device id and one shared ESP32 key on both boards:
+// 1. sensor ESP32 telemetry board
+// 2. pump relay ESP32 board
+const char* DEVICE_ID = "ccdev_1778791706_eaa27e63fdcbc077";
+const char* SHARED_ESP32_API_KEY = "cc_esp32_user_2026_5b91f3c7a8d04e6bb2f9a41c0d73e852_7e4a9d1c";
 
 // ======================================================
 // DHT22
@@ -261,7 +263,7 @@ void loop() {
     HTTPClient http;
     http.begin(client, serverName);
     http.addHeader("Content-Type", "application/json");
-    http.addHeader("X-API-Key", API_KEY);
+    http.addHeader("X-API-Key", SHARED_ESP32_API_KEY);
 
     String payload = "{";
     payload += "\"device_id\":\"" + String(DEVICE_ID) + "\",";

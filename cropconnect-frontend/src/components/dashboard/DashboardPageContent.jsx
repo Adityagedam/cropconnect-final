@@ -82,6 +82,8 @@ export default function DashboardPageContent({ ctx }) {
     percentValue,
     protectedFetch,
     pumps,
+    pumpControlMode,
+    pumpDirectHost,
     pumpUpdating,
     removeTimer,
     saveSensorSetup,
@@ -100,6 +102,8 @@ export default function DashboardPageContent({ ctx }) {
     setIsEditingProfile,
     setLanguage,
     setNewTimer,
+    setPumpControlMode,
+    setPumpDirectHost,
     setSensorSetupForm,
     setTheme,
     setUserData,
@@ -381,7 +385,11 @@ export default function DashboardPageContent({ ctx }) {
             isDark={isDark}
             userData={userData}
             pumps={pumps}
+            pumpControlMode={pumpControlMode}
+            pumpDirectHost={pumpDirectHost}
             pumpUpdating={pumpUpdating}
+            setPumpControlMode={setPumpControlMode}
+            setPumpDirectHost={setPumpDirectHost}
             scheduledTimers={scheduledTimers}
             showTimerModal={showTimerModal}
             newTimer={newTimer}
