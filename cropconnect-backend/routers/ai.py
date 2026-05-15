@@ -35,6 +35,18 @@ def raise_public_error(status_code: int, detail: str, context: str, exc: Excepti
     raise HTTPException(status_code=status_code, detail=detail) from exc
 
 
+def crop_recommendation_unavailable_response(missing_readings: list[str], live_sensor_context: dict) -> dict:
+    return {
+        "ok": True,
+        "source": "ai_unavailable",
+        "model": None,
+        "crops": [],
+        "summary": "AI crop recommendations are temporarily unavailable. Please try Refresh AI again later.",
+        "missing_readings": missing_readings,
+        "sensor_context": live_sensor_context,
+    }
+
+
 def fallback_farm_reply(message: str, live_sensor_context: dict, profile_location: str) -> str:
     sensor_data = live_sensor_context.get("sensor_data") or {}
     soil_moisture = sensor_data.get("soil_moisture")
@@ -317,11 +329,13 @@ def crop_recommend(
     except HTTPException:
         raise
     except Exception as exc:
-        raise_public_error(502, "AI crop recommendation failed", "AI crop recommendation request failed", exc)
+        logger.exception("AI crop recommendation request failed, returning unavailable response: %s", exc)
+        return crop_recommendation_unavailable_response(missing_readings, live_sensor_context)
 
     crops = parsed.get("crops") if isinstance(parsed, dict) else None
     if not isinstance(crops, list):
-        raise HTTPException(status_code=502, detail="AI crop recommendation returned invalid data")
+        logger.warning("AI crop recommendation returned invalid data, returning unavailable response")
+        return crop_recommendation_unavailable_response(missing_readings, live_sensor_context)
 
     return {
         "ok": True,
