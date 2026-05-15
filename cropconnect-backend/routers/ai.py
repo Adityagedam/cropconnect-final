@@ -145,21 +145,7 @@ def ai_chat(
     }
     search_results = google_search(payload.message, profile_location) if related_to_plant_or_soil else []
 
-    if ai_provider() == "openai" and not settings.openai_api_key:
-        fallback_reply = fallback_farm_reply(payload.message, live_sensor_context, profile_location)
-        insert_chat_record(owner_id, owner_email, "user", payload.message, related_to_plant_or_soil, live_sensor_data, profile_location)
-        insert_chat_record(owner_id, owner_email, "bot", fallback_reply, related_to_plant_or_soil, live_sensor_data, profile_location)
-        return {
-            "ok": True,
-            "source": "local_fallback",
-            "related_to_plant_or_soil": related_to_plant_or_soil,
-            "reply": fallback_reply,
-            "sensor_source": live_sensor_context.get("source"),
-            "sensor_recorded_at": live_sensor_context.get("recorded_at"),
-            "sensor_message": live_sensor_context.get("message", ""),
-            "used_google_search": bool(search_results),
-        }
-    if ai_provider() == "gemini" and not settings.gemini_api_key:
+    if not settings.gemini_api_key:
         fallback_reply = fallback_farm_reply(payload.message, live_sensor_context, profile_location)
         insert_chat_record(owner_id, owner_email, "user", payload.message, related_to_plant_or_soil, live_sensor_data, profile_location)
         insert_chat_record(owner_id, owner_email, "bot", fallback_reply, related_to_plant_or_soil, live_sensor_data, profile_location)

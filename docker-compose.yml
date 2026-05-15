@@ -39,10 +39,8 @@ services:
       ESP32_API_KEY: docker-dev-esp32-key
       PUBLIC_TRANSLATION_ENABLED: "false"
       PUBLIC_RATE_LIMIT_DB_FAIL_OPEN: "true"
-      AI_PROVIDER: gemini
       GEMINI_API_KEY: ""
       GEMINI_MODEL: gemini-1.5-flash
-      OPENAI_API_KEY: ""
       DATA_GOV_API_KEY: ""
     command: >
       sh -c "pip install --no-cache-dir -r requirements.txt &&

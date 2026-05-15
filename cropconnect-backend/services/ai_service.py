@@ -139,7 +139,7 @@ MULTILINGUAL_PLANT_SOIL_TERMS = {
 
 TRANSLATION_CACHE_MAX_ITEMS = 1000
 TRANSLATION_CACHE: OrderedDict[str, str] = OrderedDict()
-OPENAI_TRANSLATION_UNAVAILABLE = False
+AI_TRANSLATION_UNAVAILABLE = False
 TRANSLATOR_LANGUAGE_CODES = {
     "english": "en",
     "hindi": "hi",
@@ -172,28 +172,17 @@ def parse_ai_json(raw: str) -> Any:
     return json.loads(cleaned)
 
 
-def require_openai() -> None:
-    if not settings.openai_api_key:
-        raise HTTPException(status_code=503, detail="OPENAI_API_KEY is required for AI-powered decisions")
-
-
 def ai_provider() -> str:
-    provider = (settings.ai_provider or "openai").strip().lower()
-    return provider if provider in {"openai", "gemini"} else "openai"
+    return "gemini"
 
 
 def ai_model_name() -> str:
-    return settings.gemini_model if ai_provider() == "gemini" else settings.openai_model
+    return settings.gemini_model
 
 
 def require_ai_provider() -> None:
-    provider = ai_provider()
-    if provider == "gemini":
-        if not settings.gemini_api_key:
-            raise HTTPException(status_code=503, detail="GEMINI_API_KEY is required for AI-powered decisions")
-        return
-    if not settings.openai_api_key:
-        raise HTTPException(status_code=503, detail="OPENAI_API_KEY is required for AI-powered decisions")
+    if not settings.gemini_api_key:
+        raise HTTPException(status_code=503, detail="GEMINI_API_KEY is required for AI-powered decisions")
 
 
 def gemini_text_from_response(data: dict[str, Any]) -> str:
@@ -235,34 +224,20 @@ def gemini_payload_from_messages(messages: list[dict[str, str]], temperature: fl
 
 def chat_completion_text(messages: list[dict[str, str]], temperature: float = 0.2, max_tokens: int = 800) -> str:
     require_ai_provider()
-    provider = ai_provider()
-    if provider == "gemini":
-        model = settings.gemini_model
-        url = (
-            "https://generativelanguage.googleapis.com/v1beta/models/"
-            + urllib.parse.quote(model, safe="")
-            + ":generateContent?key="
-            + urllib.parse.quote(settings.gemini_api_key, safe="")
-        )
-        data = request_json(
-            url,
-            gemini_payload_from_messages(messages, temperature, max_tokens),
-            attempts=1,
-            timeout_seconds=30,
-        )
-        return gemini_text_from_response(data)
-
-    data = request_json(
-        "https://api.openai.com/v1/chat/completions",
-        {
-            "model": settings.openai_model,
-            "messages": messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-        },
-        {"Authorization": f"Bearer {settings.openai_api_key}"},
+    model = settings.gemini_model
+    url = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        + urllib.parse.quote(model, safe="")
+        + ":generateContent?key="
+        + urllib.parse.quote(settings.gemini_api_key, safe="")
     )
-    return data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+    data = request_json(
+        url,
+        gemini_payload_from_messages(messages, temperature, max_tokens),
+        attempts=1,
+        timeout_seconds=30,
+    )
+    return gemini_text_from_response(data)
 
 
 def google_search(query: str, location: str | None = "") -> list[dict[str, str]]:
@@ -355,9 +330,7 @@ def translate_texts_with_library(texts: list[str], target_lang: str) -> list[str
 
 
 def classify_farm_scope_with_ai(message: str, language: str = "en") -> bool:
-    if ai_provider() == "openai" and not settings.openai_api_key:
-        return is_plant_or_soil_question(message)
-    if ai_provider() == "gemini" and not settings.gemini_api_key:
+    if not settings.gemini_api_key:
         return is_plant_or_soil_question(message)
 
     prompt = (
@@ -388,12 +361,12 @@ def classify_farm_scope_with_ai(message: str, language: str = "en") -> bool:
             raise ValueError("Scope classifier returned an unexpected response")
         return bool(parsed.get("in_scope"))
     except Exception as exc:
-        logger.exception("OpenAI scope classifier unavailable, using local classifier: %s", exc)
+        logger.exception("Gemini scope classifier unavailable, using local classifier: %s", exc)
         return is_plant_or_soil_question(message)
 
 
 def translate_texts_with_ai(texts: list[str], target_lang: str) -> list[str]:
-    global OPENAI_TRANSLATION_UNAVAILABLE
+    global AI_TRANSLATION_UNAVAILABLE
 
     target = target_lang.lower().strip()
     if target in ("en", "english"):
@@ -421,7 +394,7 @@ def translate_texts_with_ai(texts: list[str], target_lang: str) -> list[str]:
     if missing:
         translated_items: list[str] | None = None
 
-        if (settings.openai_api_key or settings.gemini_api_key) and not OPENAI_TRANSLATION_UNAVAILABLE:
+        if settings.gemini_api_key and not AI_TRANSLATION_UNAVAILABLE:
             prompt = (
                 "Translate this JSON array of CropConnect farming website UI strings from English "
                 f"to {target_lang}. Preserve placeholders like {{name}}, {{moisture}}, {{temp}}, HTML tags, "
@@ -447,9 +420,9 @@ def translate_texts_with_ai(texts: list[str], target_lang: str) -> list[str]:
                     raise ValueError("Translator returned an unexpected response shape")
                 translated_items = [str(item) for item in parsed_items]
             except Exception as exc:
-                logger.warning("OpenAI translation unavailable, using translator library fallback: %s", exc)
+                logger.warning("Gemini translation unavailable, using translator library fallback: %s", exc)
                 if "429" in str(exc) or "quota" in str(exc).lower():
-                    OPENAI_TRANSLATION_UNAVAILABLE = True
+                    AI_TRANSLATION_UNAVAILABLE = True
 
         if translated_items is None:
             try:

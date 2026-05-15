@@ -9,7 +9,7 @@ flowchart LR
   ESP32[Main ESP32 + SIM800L] -->|sensor telemetry| API[FastAPI backend]
   API --> MySQL[(MySQL)]
   Web[React dashboard] -->|auth, sensors, pumps, AI| API
-  API --> OpenAI[OpenAI]
+  API --> Gemini[Gemini]
   API --> DataGov[Data.gov.in mandi prices]
   API --> Meteo[Open-Meteo forecast]
   ESP32 -->|poll relay commands| API
@@ -88,5 +88,5 @@ npm run build
 Suggested repository metadata:
 
 - Description: `AI-assisted farming dashboard for ESP32 sensors, pump control, crop planning, weather, and mandi market insights.`
-- Topics: `python`, `fastapi`, `react`, `iot`, `agriculture`, `esp32`, `mysql`, `openai`
+- Topics: `python`, `fastapi`, `react`, `iot`, `agriculture`, `esp32`, `mysql`, `gemini`
 - Website: your deployed frontend URL, for example `https://cropconnect01.vercel.app/`

@@ -42,13 +42,8 @@ export ALLOW_GLOBAL_ESP32_API_KEY=false
 export CONTACT_TO_EMAIL=cropconnectco@gmail.com
 export PUBLIC_LANDING_SENSOR_DEVICE_ID=
 export FARM_TIMER_UTC_OFFSET_MINUTES=330
-export AI_PROVIDER=gemini
 export GEMINI_API_KEY=your_gemini_api_key
 export GEMINI_MODEL=gemini-1.5-flash
-# Or use OpenAI instead:
-# export AI_PROVIDER=openai
-# export OPENAI_API_KEY=your_openai_api_key
-# export OPENAI_MODEL=gpt-4o-mini
 export GOOGLE_API_KEY=your_google_api_key
 export GOOGLE_CSE_ID=your_google_cse_id
 export DATA_GOV_API_KEY=your_data_gov_api_key
@@ -56,7 +51,7 @@ export DATA_GOV_MARKET_RESOURCE_URL=https://api.data.gov.in/resource/current-dai
 export MARKET_PRICE_LIMIT=100
 ```
 
-`MYSQL_PASSWORD`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `GOOGLE_CSE_ID`, and `DATA_GOV_API_KEY` are private values. Keep them out of screenshots and commits. Local migrations cannot run until `MYSQL_PASSWORD` matches your local MySQL account. AI chat and crop planning cannot answer until the configured `AI_PROVIDER` key is set. Live market prices cannot load until `DATA_GOV_API_KEY` is set.
+`MYSQL_PASSWORD`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `GOOGLE_CSE_ID`, and `DATA_GOV_API_KEY` are private values. Keep them out of screenshots and commits. Local migrations cannot run until `MYSQL_PASSWORD` matches your local MySQL account. AI chat and crop planning cannot answer until `GEMINI_API_KEY` is set. Live market prices cannot load until `DATA_GOV_API_KEY` is set.
 
 Run:
 
@@ -274,11 +269,8 @@ PUBLIC_RATE_LIMIT_DB_FAIL_OPEN=false
 TRUST_PROXY_HEADERS=false
 PASSWORD_RESET_TOKEN_TTL_MINUTES=30
 FARM_TIMER_UTC_OFFSET_MINUTES=330
-AI_PROVIDER=gemini
 GEMINI_API_KEY=
 GEMINI_MODEL=gemini-1.5-flash
-OPENAI_API_KEY=
-OPENAI_MODEL=gpt-4o-mini
 ```
 
 Open Arduino Serial Monitor after upload. You should see SIM800L telemetry POSTs, command GETs, and status POSTs.
@@ -303,6 +295,6 @@ Use a relay module between ESP32 and the pump. Do not connect pump power directl
 - Set `PUBLIC_LANDING_SENSOR_DEVICE_ID` only if the public landing page should show one device's latest ESP32 reading. Leave it blank to show `--`.
 - Set `PUBLIC_TRANSLATION_ENABLED=true` and frontend `VITE_PUBLIC_TRANSLATION_ENABLED=true` only when you want whole-site auto-translation enabled and have AI provider quota/rate limits ready. Leave them `false` for English-only mode.
 - Set SMTP variables if you want `/api/enquiries` to send email directly. Without SMTP, the frontend falls back to a pre-filled mail client.
-- Set `AI_PROVIDER=gemini` with `GEMINI_API_KEY`, or `AI_PROVIDER=openai` with `OPENAI_API_KEY`, for AI chat answers, crop planning, translations, and AI market advice. Set `GOOGLE_API_KEY` and `GOOGLE_CSE_ID` only to add Google Custom Search snippets to the AI prompt.
+- Set `GEMINI_API_KEY` for AI chat answers, crop planning, translations, and AI market advice. Set `GOOGLE_API_KEY` and `GOOGLE_CSE_ID` only to add Google Custom Search snippets to the AI prompt.
 - Set `DATA_GOV_API_KEY` for live `/api/market/prices` mandi rates and `/api/market/insights` AI market advice. The dashboard uses the logged-in user's saved state and city/village as the location filter, then falls back to state-level records when district-level records are unavailable.
 - Local `.env` intentionally points the frontend to `http://localhost:8001/api`. Do not point local development at production unless you specifically intend to write production data.

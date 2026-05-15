@@ -72,7 +72,7 @@ src/
 - Optionally set `VITE_PUBLIC_TRANSLATION_FALLBACK_URL` to a second translator endpoint. The frontend first tries `/api/utils/translate`, then falls back to that URL using a CropConnect-compatible payload and a LibreTranslate-style payload.
 - New signups open a sensor setup flow. The generated `sensorDeviceId` must be used by ESP32 nodes when posting telemetry.
 - Contact enquiries post to `/api/enquiries`; if SMTP is not configured, the form opens a pre-filled email to `cropconnectco@gmail.com`.
-- AI chat posts to `/api/ai/chat`; configure backend `AI_PROVIDER=gemini` + `GEMINI_API_KEY`, or `AI_PROVIDER=openai` + `OPENAI_API_KEY`, for AI answers. `GOOGLE_API_KEY` + `GOOGLE_CSE_ID` are only for Google search context.
+- AI chat posts to `/api/ai/chat`; configure backend `GEMINI_API_KEY` for AI answers. `GOOGLE_API_KEY` + `GOOGLE_CSE_ID` are only for Google search context.
 - Live weather comes from `/api/weather/forecast`.
 - Live market prices come from authenticated `/api/market/prices`; configure `DATA_GOV_API_KEY` on the backend so the dashboard can fetch mandi records for the user's saved profile location. AI market advice uses `/api/market/insights`, which requires `DATA_GOV_API_KEY` and the configured AI provider key.
 - Fonts are pulled from Google Fonts (Fraunces / DM Sans / JetBrains Mono).
