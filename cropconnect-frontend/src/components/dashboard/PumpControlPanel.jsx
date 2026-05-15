@@ -234,7 +234,7 @@ export default function PumpControlPanel({
           <div>
             <h3 className="font-semibold" style={{ color: colors.textDark }}>Pump Connection</h3>
             <p className="mt-1 text-sm" style={{ color: colors.textMid }}>
-              Direct mode sends relay commands from this browser to the pump ESP32 on your WiFi.
+              Direct mode sends relay commands from this browser to the pump ESP32.
             </p>
           </div>
           <div className="flex flex-col sm:flex-row gap-3">
@@ -264,7 +264,7 @@ export default function PumpControlPanel({
         </div>
         {pumpControlMode === "direct" && (
           <p className="mt-3 text-xs" style={{ color: colors.textLight }}>
-            Your phone/laptop must be on the same WiFi as the pump ESP32. If Chrome blocks the request on the deployed HTTPS site, open the direct command URL from the toast/browser or run the frontend locally on HTTP.
+            If Chrome blocks the request on the deployed HTTPS site, open the direct command URL from the toast/browser or run the frontend locally on HTTP.
           </p>
         )}
       </div>
