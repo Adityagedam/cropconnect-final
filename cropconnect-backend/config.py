@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     auth_cookie_samesite: str = "none"
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
-    ai_provider: str = "openai"
+    ai_provider: str = "gemini"
     gemini_api_key: str = ""
     gemini_model: str = "gemini-1.5-flash"
     google_api_key: str = ""
