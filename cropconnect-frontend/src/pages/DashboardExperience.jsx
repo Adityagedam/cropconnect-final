@@ -42,6 +42,7 @@ import MarketSection from "../components/dashboard/MarketSection";
 import PumpSection from "../components/dashboard/PumpSection";
 import SensorSection from "../components/dashboard/SensorSection";
 import WeatherSection from "../components/dashboard/WeatherSection";
+import { useLandingLanguage } from "../components/landing/LandingLanguageContext";
 import DashboardPageContent from "../components/dashboard/DashboardPageContent";
 import { toast } from "sonner";
 import { API } from "../lib/api";
@@ -217,6 +218,7 @@ const emptyMarketData = {
 };
 
 export default function Dashboard() {
+  const { language: appLanguage, setLanguage: setAppLanguage } = useLandingLanguage();
   const [language, setLanguage] = useState(
     () => localStorage.getItem("cropconnect-language") || "en"
   );
@@ -240,6 +242,15 @@ export default function Dashboard() {
   const chatText = chatCopy.en;
   const ct = (key) => chatText[key] || chatCopy.en[key] || key;
   const { protectedFetch, handleLogout } = useAuth();
+
+  useEffect(() => {
+    if (appLanguage && appLanguage !== language) setLanguage(appLanguage);
+  }, [appLanguage, language]);
+
+  const handleLanguageChange = useCallback((nextLanguage) => {
+    setLanguage(nextLanguage);
+    setAppLanguage(nextLanguage);
+  }, [setAppLanguage]);
 
   const {
     userData,
@@ -933,7 +944,7 @@ export default function Dashboard() {
     setChatInput,
     setEditData,
     setIsEditingProfile,
-    setLanguage,
+    setLanguage: handleLanguageChange,
     setNewTimer,
     setSensorSetupForm,
     setTheme,
@@ -1219,6 +1230,9 @@ export default function Dashboard() {
               </div>
             </div>
             <div className="flex items-center gap-1.5 sm:gap-2">
+              <div className="hidden sm:inline-flex rounded-lg border border-[#d5d1c5] bg-white px-2 py-1">
+                <LanguageSelect value={language} onChange={handleLanguageChange} />
+              </div>
               <div className="hidden sm:flex flex-col gap-2 px-3 py-1.5 rounded-full" style={{ background: "rgba(45, 90, 61, 0.1)" }}>
                 <div className="flex items-center gap-2">
                   <span className={`w-2 h-2 rounded-full animate-pulse ${sensorConnection.source === "esp32" ? "bg-green-500" : "bg-amber-500"}`} />
